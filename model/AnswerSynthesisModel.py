@@ -1,6 +1,8 @@
 import cntk as C
 from cntk.layers import *
 
+from script.utils import BiRecurrence
+
 
 class AnswerSynthesisModel(object):
     # Create the containers for input feature (x) and the label (y)
@@ -22,9 +24,7 @@ class AnswerSynthesisModel(object):
             model = Sequential([
                 Embedding(self.word_emb_dim, name='embed'),
                 # ht = BiGRU(ht−1, etq)
-                Recurrence(GRU(shape=150), go_backwards=False),
-                Recurrence(GRU(shape=150), go_backwards=True)
-
+                BiRecurrence(GRU(shape=self.hidden_dim / 2), GRU(shape=self.hidden_dim / 2)),
             ])
         return model
 
@@ -33,17 +33,32 @@ class AnswerSynthesisModel(object):
             model = Sequential([
                 Embedding(self.word_emb_dim + self.feature_emb_dim * 2, name='embed'),
                 # ht = BiGRU(ht−1, [etp, fts, fte])
-                Recurrence(GRU(shape=150), go_backwards=False),
-                Recurrence(GRU(shape=150), go_backwards=True),
-                splice()
+                BiRecurrence(GRU(shape=self.hidden_dim / 2), GRU(shape=self.hidden_dim / 2)),
             ])
         return model
 
-    def decoder_initialization(self):
-        question_encoder = self.question_encoder_factory()
-        passage_encoder = self.passage_encoder_factory()
-
-
+    def decoder_initialization_factory(self):
+        return splice>>Dense(self.hidden_dim, activation=C.tanh)
 
     def decoder_factory(self):
-        pass
+        question_encoder = self.question_encoder_factory()
+        passage_encoder = self.passage_encoder_factory()
+        h_b1_q = question_encoder[self.hidden_dim / 2 - 1:]
+        h_b1_p = passage_encoder[self.hidden_dim / 2 - 1:]
+        decoder_initialization = self.decoder_initialization_factory()
+        d_0=decoder_initialization(h_b1_p,h_b1_q)
+        h=splice(question_encoder,passage_encoder)
+
+        v_t=C.parameter()
+
+        @C.Function
+        def attention(hidden_state):
+            pass
+
+
+
+
+
+
+
+

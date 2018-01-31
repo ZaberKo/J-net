@@ -1,4 +1,3 @@
-import cntk as C
 from cntk.layers import *
 
 from script.utils import BiRecurrence
@@ -13,7 +12,7 @@ class AnswerSynthesisModel(object):
     # ans = C.sequence.input_variable(ANS_SIZE, sequence_axis=axis_ans)
 
 
-    def __init__(self, reader, word_emb_dim, feature_emb_dim, hidden_dim,attention_dim):
+    def __init__(self, reader, word_emb_dim, feature_emb_dim, hidden_dim, attention_dim):
         self.attention_dim = attention_dim
         self.hidden_dim = hidden_dim
         self.feature_emb_dim = feature_emb_dim
@@ -39,7 +38,7 @@ class AnswerSynthesisModel(object):
         return model
 
     def decoder_initialization_factory(self):
-        return splice>>Dense(self.hidden_dim, activation=C.tanh)
+        return splice >> Dense(self.hidden_dim, activation=C.tanh)
 
     def decoder_factory(self):
         question_encoder = self.question_encoder_factory()
@@ -47,20 +46,20 @@ class AnswerSynthesisModel(object):
         h_b1_q = question_encoder[self.hidden_dim / 2 - 1:]
         h_b1_p = passage_encoder[self.hidden_dim / 2 - 1:]
         decoder_initialization = self.decoder_initialization_factory()
-        d_0=decoder_initialization(h_b1_p,h_b1_q)
-        h=splice(question_encoder,passage_encoder)
-        attention=AttentionModel(self.attention_dim)
-        v_t=C.parameter()
-        attention()
+        d_0 = decoder_initialization(h_b1_p, h_b1_q)
 
+        h = splice(question_encoder, passage_encoder)
+
+
+        #source=h  hidden=d_t-1
         @C.Function
-        def attention(hidden_state):
-            Dense()
-
-
-
-
-
-
+        def attention(source,hidden):
+            with default_options(bias=None):
+                s=Dense(1,activation=tanh)(
+                    C.plus(
+                        Dense(self.attention_dim),#for d_t-1
+                        Dense(self.attention_dim))#for h_j
+                )
+                a=C.softmax(s)
 
 

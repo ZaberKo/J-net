@@ -13,7 +13,8 @@ class AnswerSynthesisModel(object):
     # ans = C.sequence.input_variable(ANS_SIZE, sequence_axis=axis_ans)
 
 
-    def __init__(self, reader, word_emb_dim, feature_emb_dim, hidden_dim):
+    def __init__(self, reader, word_emb_dim, feature_emb_dim, hidden_dim,attention_dim):
+        self.attention_dim = attention_dim
         self.hidden_dim = hidden_dim
         self.feature_emb_dim = feature_emb_dim
         self.word_emb_dim = word_emb_dim
@@ -48,12 +49,13 @@ class AnswerSynthesisModel(object):
         decoder_initialization = self.decoder_initialization_factory()
         d_0=decoder_initialization(h_b1_p,h_b1_q)
         h=splice(question_encoder,passage_encoder)
-
+        attention=AttentionModel(self.attention_dim)
         v_t=C.parameter()
+        attention()
 
         @C.Function
         def attention(hidden_state):
-            pass
+            Dense()
 
 
 

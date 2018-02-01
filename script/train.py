@@ -1,0 +1,14 @@
+import cntk as C
+
+HIDDEN_DIM=150
+DROPOUT_RATE=0.1
+R=0.8
+VACABULARY_SIZE=30000
+WORD_EMB_DIM=300
+FEATURE_EMB_SIZE=50
+LR=1
+
+
+def create_reader():
+    pass
+

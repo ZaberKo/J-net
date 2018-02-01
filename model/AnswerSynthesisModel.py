@@ -38,7 +38,7 @@ class AnswerSynthesisModel(object):
         return model
 
     def decoder_initialization_factory(self):
-        return splice >> Dense(self.hidden_dim, activation=C.tanh)
+        return splice >> Dense(self.hidden_dim, activation=C.tanh,bias=True)
 
     def decoder_factory(self):
         question_encoder = self.question_encoder_factory()
@@ -50,16 +50,17 @@ class AnswerSynthesisModel(object):
 
         h = splice(question_encoder, passage_encoder)
 
+        attention=AttentionModel(self.attention_dim)
 
-        #source=h  hidden=d_t-1
         @C.Function
-        def attention(source,hidden):
-            with default_options(bias=None):
-                s=Dense(1,activation=tanh)(
-                    C.plus(
-                        Dense(self.attention_dim),#for d_t-1
-                        Dense(self.attention_dim))#for h_j
-                )
-                a=C.softmax(s)
+        def GRU_generator_with_attention(h,x):
+            pass
 
+        return Recurrence(GRU_generator_with_attention)
+
+
+
+
+    def train(self):
+        pass
 

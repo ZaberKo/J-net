@@ -23,6 +23,7 @@ class AnswerSynthesisModel(object):
         with default_options(initial_state=0.1):
             model = Sequential([
                 Embedding(self.word_emb_dim, name='embed'),
+                Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
                 BiRecurrence(GRU(shape=self.hidden_dim / 2), GRU(shape=self.hidden_dim / 2)),
             ])
@@ -32,35 +33,40 @@ class AnswerSynthesisModel(object):
         with default_options(initial_state=0.1):
             model = Sequential([
                 Embedding(self.word_emb_dim + self.feature_emb_dim * 2, name='embed'),
+                Stabilizer(),
                 # ht = BiGRU(ht−1, [etp, fts, fte])
                 BiRecurrence(GRU(shape=self.hidden_dim / 2), GRU(shape=self.hidden_dim / 2)),
             ])
         return model
 
     def decoder_initialization_factory(self):
-        return splice >> Dense(self.hidden_dim, activation=C.tanh,bias=True)
+        return splice >> Dense(self.hidden_dim, activation=C.tanh, bias=True)
 
-    def decoder_factory(self):
-        question_encoder = self.question_encoder_factory()
-        passage_encoder = self.passage_encoder_factory()
-        h_b1_q = question_encoder[self.hidden_dim / 2 - 1:]
-        h_b1_p = passage_encoder[self.hidden_dim / 2 - 1:]
-        decoder_initialization = self.decoder_initialization_factory()
-        d_0 = decoder_initialization(h_b1_p, h_b1_q)
+    # def decoder_factory(self):
+    #     @Function
+    #     def decode(history, input):
+    #         encoded_input = encode(input)
+    #         r = history
+    #         r = embed(r)
+    #         r = stab_in(r)
+    #
+    #         rec_block  # LSTM(hidden_dim)  # :: (dh, dc, x) -> (h, c)
+    #
+    #
+    #             @Function
+    #             def lstm_with_attention(dh, dc, x):
+    #                 h_att = attention_model(encoded_input.outputs[0], dh)
+    #                 x = splice(x, h_att)  # TODO: should this be added instead? (cf. BS example)
+    #                 return rec_block(dh, dc, x)
+    #
+    #             r = Recurrence(lstm_with_attention)(r)
+    #
+    #
+    #     r = stab_out(r)
+    #     r = proj_out(r)
+    #     r = Label('out_proj_out')(r)
+    #     return r
 
-        h = splice(question_encoder, passage_encoder)
 
-        attention=AttentionModel(self.attention_dim)
-
-        @C.Function
-        def GRU_generator_with_attention(h,x):
-            pass
-
-        return Recurrence(GRU_generator_with_attention)
-
-
-
-
-    def train(self):
-        pass
-
+def train(self):
+    pass

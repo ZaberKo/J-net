@@ -31,18 +31,18 @@ def question_encoder_factory():
             Stabilizer(),
             # ht = BiGRU(ht−1, etq)
             BiRecurrence(GRU(shape=hidden_dim / 2), GRU(shape=hidden_dim / 2)),
-        ])
+        ],name='question_encoder')
     return model
 
 
 def passage_encoder_factory():
     with default_options(initial_state=0.1):
         model = Sequential([
-            Embedding(word_emb_dim + feature_emb_dim * 2, name='embed'),
+            Embedding(word_emb_dim, name='embed'),
             Stabilizer(),
             # ht = BiGRU(ht−1, [etp, fts, fte])
-            BiRecurrence(GRU(shape=hidden_dim / 2), GRU(shape=hidden_dim / 2)),
-        ])
+            BiRecurrence(GRU(shape=hidden_dim / 2), GRU(shape=hidden_dim / 2))
+        ],name='passage_encoder')
     return model
 
 
@@ -56,7 +56,7 @@ def decoder_factory():
         question_encoder = question_encoder_factory()
         passage_encoder = passage_encoder_factory()
         h_b1_q = question_encoder()
-        h_b1_p = passage_encoder
+        h_b1_p = passage_encoder()
         decoder_initialization = decoder_initialization_factory()
         h = splice(question_encoder, passage_encoder)
         d_0 = decoder_initialization(h_b1_p, h_b1_q)

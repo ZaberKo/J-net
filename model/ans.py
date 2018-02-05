@@ -1,6 +1,7 @@
 from cntk.layers import *
-
+import numpy as np
 from script.utils import BiRecurrence
+
 
 word_emb_dim = 300
 feature_emb_dim = 50
@@ -76,23 +77,25 @@ def output_layer(emb_word, att_p, att_q, hidden):
         Dense(vocab_dim)(att_p_ph),
         Dense(vocab_dim)(hidden_ph)
     )
-    word = C.argmax(C.softmax(readout))  # todo
+    word = C.argmax(C.softmax(readout))  # todo: find the map
     return C.as_block(
         word,
-        [(emb_word_ph, emb_word), (att_p_ph, att_p), (att_q_ph, att_q), (hidden_ph, hidden)]
-
+        [(emb_word_ph, emb_word), (att_p_ph, att_p), (att_q_ph, att_q), (hidden_ph, hidden)],
+        'output_layer',
+        'output_layer'
     )
 
 
 @C.Function
-def decoder(word_prev, hidden_prev, att_p_prev, att_q_prev):
+def decoder(prev_state):
+    word_prev, hidden_prev, att_p_prev, att_q_prev=prev_state
     emb = emb_layer(word_prev)
     x = C.splice(word_prev, att_p_prev, att_q_prev)
     hidden = decoder_gru(hidden_prev, x)
     att_p = p_attention_layer(h_p, hidden)
     att_q = q_attention_layer(h_q, hidden)
     word = output_layer(emb, att_p, att_q, hidden)
-    return C.combine([word, hidden, att_p, att_q])
+    return (word,C.combine([word, hidden, att_p, att_q]))
 
 
 def model_factory():
@@ -101,11 +104,12 @@ def model_factory():
                                   lambda word, _1, _2, _3: 1 if word == end_word else 0,
                                   name="answer_generator"
                                   )
-    # (initial_state, dynamic_axes_like)
-    word_0
-    att_p_0
-    att_q_0
-    answer_generator()
+
+    word_0=np.zeros(word_emb_dim)# todo: is random better?
+    att_p_0=np.zeros(attention_dim)
+    att_q_0=np.zeros(attention_dim)
+    # Function(initial_state, dynamic_axes_like)
+    answer_generator((word_0,d_0,att_p_0,att_q_0),)
 
 #
 # UnfoldFrom(decoder)

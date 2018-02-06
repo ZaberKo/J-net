@@ -28,8 +28,8 @@ def populate_dicts(files):
     chars = defaultdict(count().__next__)
     wdcnt = defaultdict(int)
     chcnt = defaultdict(int)
-    test_wdcnt = defaultdict(
-        int)  # all glove words in test/dev should be added to known, but non-glove words in test/dev should be kept unknown
+    test_wdcnt = defaultdict(int)
+    # all glove words in test/dev should be added to known, but non-glove words in test/dev should be kept unknown
 
     # count the words and characters to find the ones with cardinality above the thresholds
     for f in files:
@@ -98,29 +98,35 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
         raise ValueError('answer problem with input line:\n%s' % line)
 
     if not is_test:
-        ctokens = ctokens[ba:ea + 1]
+        mtokens = ctokens[ba:ea + 1]
 
     # replace EMPTY_TOKEN with ''
     ctokens = [t if t != EMPTY_TOKEN else '' for t in ctokens]
     qtokens = [t if t != EMPTY_TOKEN else '' for t in qtokens]
-    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens]
+    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens] + [eos]
+    mtokens = [t if t != EMPTY_TOKEN else '' for t in mtokens]
 
     cwids = [vocab.get(t.lower(), unk_w) for t in ctokens]
     qwids = [vocab.get(t.lower(), unk_w) for t in qtokens]
     awids = [vocab.get(t.lower(), unk_w) for t in atokens]
+    mwids = [vocab.get(t.lower(), unk_w) for t in mtokens]
     ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
     qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
     acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
+    mcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in mtokens]
 
-    # if not is_test:
-    #     raise ValueError('problem with input line:\n%s' % line)
+    baidx = [0 if i != ba else 1 for i, t in enumerate(ctokens)]
+    eaidx = [0 if i != ea else 1 for i, t in enumerate(ctokens)]
+
+    if not is_test and sum(eaidx) == 0:
+        raise ValueError('problem with input line:\n%s' % line)
 
     if is_test and misc.keys():
         misc['answer'] += [answer]
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return ctokens, qtokens, atokens, cwids, qwids, awids, ccids, qcids, acids
+    return ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -128,10 +134,13 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        ctokens, qtokens, atokens, cwids, qwids, awids, ccids, qcids, acids = tsv_iter(line, vocab, chars, is_test)
+        ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(line,
+                                                                                                                   vocab,
+                                                                                                                   chars,
+                                                                                                                   is_test)
 
-        for ctoken, qtoken, atoken, cwid, qwid, awid, ccid, qcid, acid in zip_longest(
-                ctokens, qtokens, atokens, cwids, qwids, awids, ccids, qcids, acids):
+        for ctoken, qtoken, atoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
+                ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
             out = [str(lineno)]
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
@@ -145,6 +154,8 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 out.append('|qw {}:{}'.format(qwid, 1))
             if awid is not None:
                 out.append('|aw {}:{}'.format(awid, 1))
+            if mwid is not None:
+                out.append('|mw {}:{}'.format(mwid, 1))
             if ccid is not None:
                 outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
                 out.append('|cc %s' % outc)
@@ -154,6 +165,13 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
             if acid is not None:
                 outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
                 out.append('|ac %s' % outa)
+            if mcid is not None:
+                outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
+                out.append('|mc %s' % outm)
+            if begin is not None:
+                out.append('|ab %3d' % begin)
+            if end is not None:
+                out.append('|ae %3d' % end)
             g.write('\t'.join(out))
             g.write('\n')
 

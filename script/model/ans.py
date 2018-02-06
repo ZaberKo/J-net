@@ -24,7 +24,7 @@ with open(pickle_file, 'rb') as vf:
 
 start_word=C.constant(np.zeros(vocab_dim,dtype=np.float32))
 end_word = C.constant(np.zeros(vocab_dim,dtype=np.float32))
-end_word_idx=114
+end_word_idx=
 
 
 def question_encoder_factory():
@@ -49,11 +49,7 @@ def passage_encoder_factory():
     return model
 
 
-def decoder_initialization_factory():
-    return Sequential([
-        splice,
-        Dense(hidden_dim, activation=C.tanh, bias=True)
-    ])
+
 
 
 # def output_layer(emb_word, att_p, att_q, hidden):

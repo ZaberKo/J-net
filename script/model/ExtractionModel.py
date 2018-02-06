@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import os
-from __future__ import print_function # Use a function definition from future version (say 3.x from 2.7 interpreter)
+
 
 import cntk as C
 import cntk.tests.test_utils

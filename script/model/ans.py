@@ -18,13 +18,15 @@ question_seq = C.sequence.input_variable(vocab_dim, sequence_axis=question_seq_a
 passage_seq = C.sequence.input_variable(vocab_dim, sequence_axis=passage_seq_axis, name='raw_input')
 answer_seq = C.sequence.input_variable(vocab_dim, sequence_axis=answer_seq_axis, name='raw_input')
 test = C.sequence.input_variable(attention_dim, sequence_axis=answer_seq_axis, name='raw_input')
+bos='<BOS>'
+eos='<EOS>'
 
 with open(pickle_file, 'rb') as vf:
     known, vocab, chars = pickle.load(vf)
 
 start_word=C.constant(np.zeros(vocab_dim,dtype=np.float32))
 end_word = C.constant(np.zeros(vocab_dim,dtype=np.float32))
-end_word_idx=
+end_word_idx=vocab
 
 
 def question_encoder_factory():

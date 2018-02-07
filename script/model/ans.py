@@ -26,7 +26,7 @@ with open(pickle_file, 'rb') as vf:
 
 start_word=C.constant(np.zeros(vocab_dim,dtype=np.float32))
 end_word = C.constant(np.zeros(vocab_dim,dtype=np.float32))
-end_word_idx=vocab
+end_word_idx=vocab[eos]
 
 
 def question_encoder_factory():

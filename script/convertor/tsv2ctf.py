@@ -50,8 +50,7 @@ def populate_dicts(files):
                     for t in tokens:
                         test_wdcnt[t.lower()] += 1
 
-    _ = vocab[bos]
-    _ = vocab[eos]
+
 
     # add all words that are both in glove and the vocabulary first
     with open(glove_file, encoding='utf-8') as f:
@@ -63,6 +62,8 @@ def populate_dicts(files):
     known = len(vocab)
 
     # add the special markers
+    _ = vocab[bos]
+    _ = vocab[eos]
     _ = vocab[pad]
     _ = vocab[unk]
     _ = chars[pad]

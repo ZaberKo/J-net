@@ -1,4 +1,8 @@
+import importlib
+
 import cntk as C
+
+from script.answer_synthesis_model import AnswerSynthesisModel
 
 HIDDEN_DIM=150
 DROPOUT_RATE=0.1
@@ -30,13 +34,18 @@ def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
         randomize=randomize,
         max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1)
     input_map = {
-        argument_by_name(func, 'cgw'): mb_source.streams.select_context_words,
-        argument_by_name(func, 'qgw'): mb_source.streams.query_words,
-        argument_by_name(func, 'cnw'): mb_source.streams.answer_words
+        argument_by_name(func, 'passage'): mb_source.streams.select_context_words,
+        argument_by_name(func, 'question'): mb_source.streams.query_words,
+        argument_by_name(func, 'answer'): mb_source.streams.answer_words
     }
     return mb_source, input_map
 
 
 def train(data_path, model_path, log_file, config_file, restore=False, profiling=False, gen_heartbeat=False):
+    answer_synthesis_model=AnswerSynthesisModel(config_file)
+    synthesis_answer, criterion=answer_synthesis_model.model()
+    training_config = importlib.import_module(config_file).training_config
+    max_epochs = training_config['max_epochs']
+    log_freq = training_config['log_freq']
 
 

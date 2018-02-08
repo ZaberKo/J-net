@@ -18,7 +18,9 @@ evidence_extraction_model = {
 }
 
 answer_synthesis_model = {
-
+    'emb_dim': 300,
+    'hidden_dim': 150,
+    'attention_dim': 300  # todo: need to be diff form emb_dim
 }
 
 training_config = {

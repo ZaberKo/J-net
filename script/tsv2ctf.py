@@ -15,7 +15,7 @@ vocab_map_file = data_config['pickle_file']
 emb_dim = data_config['emb_dim']
 
 sanitize = str.maketrans({"|": None, "\n": None})
-tsvs = 'train', 'dev', 'test'
+tsvs = 'dev', 'test'
 
 bos = '<BOS>'
 eos = '<EOS>'
@@ -93,7 +93,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     ctokens = context.split(' ')
     qtokens = query.split(' ')
     atokens = answer.split(' ')
-
+    mtokens = []
     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
 
     if ba > ea:
@@ -193,8 +193,8 @@ if __name__ == '__main__':
                 if idx < known:
                     npglove_matrix[vocab[word], :] = np.asarray([float(p) for p in parts[1:]])
 
-        npglove_matrix[known:,:]=2*np.random(vocab_dim-known,emb_dim)-np.ones(vocab_dim-known,emb_dim,dtype=np.float32)
-
+        npglove_matrix[known:, :] = 2 * np.random.rand(vocab_dim - known, emb_dim) - np.ones(
+            (vocab_dim - known, emb_dim), dtype=np.float32)
 
         f = open(vocab_map_file, 'wb')
         pickle.dump((known, vocab, chars, npglove_matrix), f)

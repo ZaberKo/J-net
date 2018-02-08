@@ -2,7 +2,9 @@ data_config = {
     'word_size': 25,
     'word_count_threshold': 10,
     'char_count_threshold': 50,
-    'pickle_file': 'vocabs.pkl',
+    'pickle_file': 'data/vocabs.pkl',
+    'glove_file': 'data/glove.6B.300d.txt',
+    'emb_dim': 300
 }
 
 evidence_extraction_model = {

@@ -3,14 +3,17 @@ import pickle
 from collections import defaultdict
 from itertools import count, zip_longest
 
+import numpy as np
+
 from script.config import *
 
 word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
 word_size = data_config['word_size']
+glove_file = data_config['glove_file']
+vocab_map_file = data_config['pickle_file']
+emb_dim = data_config['emb_dim']
 
-glove_file = '../data/glove.6B.300d.txt'
-vocab_map_file = '../data/vocabs.pkl'
 sanitize = str.maketrans({"|": None, "\n": None})
 tsvs = 'train', 'dev', 'test'
 
@@ -33,7 +36,7 @@ def populate_dicts(files):
 
     # count the words and characters to find the ones with cardinality above the thresholds
     for f in files:
-        f = os.path.join('../data', f)
+        f = os.path.join('./data', f)
         with open('%s.tsv' % f, 'r', encoding='utf-8') as input_file:
             for line in input_file:
                 if 'test' in f:
@@ -49,8 +52,6 @@ def populate_dicts(files):
                 else:
                     for t in tokens:
                         test_wdcnt[t.lower()] += 1
-
-
 
     # add all words that are both in glove and the vocabulary first
     with open(glove_file, encoding='utf-8') as f:
@@ -179,15 +180,28 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
 
 if __name__ == '__main__':
     try:
-        known, vocab, chars = pickle.load(open(vocab_map_file, 'rb'))
+        known, vocab, chars, npglove_matrix = pickle.load(open(vocab_map_file, 'rb'))
     except:
         known, vocab, chars = populate_dicts(tsvs)
+        vocab_dim = len(vocab)
+        npglove_matrix = np.zeros((vocab_dim, emb_dim), dtype=np.float32)
+        with open(glove_file, 'r', encoding='utf-8') as file:
+            for line in file:
+                parts = line.split()
+                word = parts[0].lower()
+                idx = vocab[word]
+                if idx < known:
+                    npglove_matrix[vocab[word], :] = np.asarray([float(p) for p in parts[1:]])
+
+        npglove_matrix[known:,:]=2*np.random(vocab_dim-known,emb_dim)-np.ones(vocab_dim-known,emb_dim,dtype=np.float32)
+
+
         f = open(vocab_map_file, 'wb')
-        pickle.dump((known, vocab, chars), f)
+        pickle.dump((known, vocab, chars, npglove_matrix), f)
         f.close()
 
     for tsv in tsvs:
-        tsv_name = os.path.join('../data', tsv)
+        tsv_name = os.path.join('./data', tsv)
         with open('%s.tsv' % tsv_name, 'r', encoding='utf-8') as f:
             with open('%s.ctf' % tsv_name, 'w', encoding='utf-8') as g:
                 tsv_to_ctf(f, g, vocab, chars, tsv == 'test')

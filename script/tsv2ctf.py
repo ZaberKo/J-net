@@ -5,17 +5,20 @@ from itertools import count, zip_longest
 
 import numpy as np
 
-from script.config import *
+from config import *
 
+abs_path = os.path.dirname(os.path.abspath(__file__))
+data_path=os.path.join(abs_path,'data')
+glove_file = os.path.join(data_path,data_config['glove_file'])
+vocab_map_file = os.path.join(data_path,data_config['pickle_file'])
+
+word_size = data_config['word_size']
+emb_dim = data_config['emb_dim']
 word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
-word_size = data_config['word_size']
-glove_file = data_config['glove_file']
-vocab_map_file = data_config['pickle_file']
-emb_dim = data_config['emb_dim']
 
 sanitize = str.maketrans({"|": None, "\n": None})
-tsvs = 'dev', 'test'
+tsvs = 'train','dev', 'test'
 
 bos = '<BOS>'
 eos = '<EOS>'
@@ -189,8 +192,7 @@ if __name__ == '__main__':
             for line in file:
                 parts = line.split()
                 word = parts[0].lower()
-                idx = vocab[word]
-                if idx < known:
+                if word in vocab:
                     npglove_matrix[vocab[word], :] = np.asarray([float(p) for p in parts[1:]])
 
         npglove_matrix[known:, :] = 2 * np.random.rand(vocab_dim - known, emb_dim) - np.ones(

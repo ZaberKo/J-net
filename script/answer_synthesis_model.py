@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from script.utils import BiRecurrence
+from utils import BiRecurrence
 
 
 class AnswerSynthesisModel(object):
@@ -13,7 +13,7 @@ class AnswerSynthesisModel(object):
         model_config = importlib.import_module(config_file).answer_synthesis_model
 
         self.abs_path = os.path.dirname(os.path.abspath(__file__))
-        pickle_file = os.path.join(self.abs_path, data_config['pickle_file'])
+        pickle_file = os.path.join(self.abs_path,'data', data_config['pickle_file'])
         with open(pickle_file, 'rb') as vf:
             known, vocab, chars, npglove_matrix = pickle.load(vf)
 
@@ -165,6 +165,8 @@ class AnswerSynthesisModel(object):
         return synthesis_answer, criterion
 
 
-t = AnswerSynthesisModel('config')
-m = t.model()
-print(m[1])
+# a=AnswerSynthesisModel('config')
+# print(a.model()[0].arguments)
+
+
+

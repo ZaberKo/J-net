@@ -8,9 +8,9 @@ import numpy as np
 from config import *
 
 abs_path = os.path.dirname(os.path.abspath(__file__))
-data_path=os.path.join(abs_path,'data')
-glove_file = os.path.join(data_path,data_config['glove_file'])
-vocab_map_file = os.path.join(data_path,data_config['pickle_file'])
+data_path = os.path.join(abs_path, 'data')
+glove_file = os.path.join(data_path, data_config['glove_file'])
+vocab_map_file = os.path.join(data_path, data_config['pickle_file'])
 
 word_size = data_config['word_size']
 emb_dim = data_config['emb_dim']
@@ -18,7 +18,7 @@ word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
 
 sanitize = str.maketrans({"|": None, "\n": None})
-tsvs = 'train','dev', 'test'
+tsvs = ['train']
 
 bos = '<BOS>'
 eos = '<EOS>'
@@ -131,7 +131,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
+    return ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -139,46 +139,51 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(line,
-                                                                                                                   vocab,
-                                                                                                                   chars,
-                                                                                                                   is_test)
+        ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(
+            line,
+            vocab,
+            chars,
+            is_test)
 
-        for ctoken, qtoken, atoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
-                ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
+        for ctoken, qtoken, atoken, mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
+                ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx,
+                eaidx):
             out = [str(lineno)]
-            if ctoken is not None:
-                out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            # if ctoken is not None:
+            #     out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            if mtoken is not None:
+                out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
             if atoken is not None:
                 out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
-            if cwid is not None:
-                out.append('|cw {}:{}'.format(cwid, 1))
+            # if cwid is not None:
+            #     out.append('|cw {}:{}'.format(cwid, 1))
             if qwid is not None:
                 out.append('|qw {}:{}'.format(qwid, 1))
             if awid is not None:
                 out.append('|aw {}:{}'.format(awid, 1))
             if mwid is not None:
                 out.append('|mw {}:{}'.format(mwid, 1))
-            if ccid is not None:
-                outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
-                out.append('|cc %s' % outc)
-            if qcid is not None:
-                outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
-                out.append('|qc %s' % outq)
-            if acid is not None:
-                outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
-                out.append('|ac %s' % outa)
-            if mcid is not None:
-                outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
-                out.append('|mc %s' % outm)
-            if begin is not None:
-                out.append('|ab %3d' % begin)
-            if end is not None:
-                out.append('|ae %3d' % end)
-            g.write('\t'.join(out))
-            g.write('\n')
+            # if ccid is not None:
+            #     outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
+            #     out.append('|cc %s' % outc)
+            # if qcid is not None:
+            #     outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
+            #     out.append('|qc %s' % outq)
+            # if acid is not None:
+            #     outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
+            #     out.append('|ac %s' % outa)
+            # if mcid is not None:
+            #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
+            #     out.append('|mc %s' % outm)
+            # if begin is not None:
+            #     out.append('|ab %3d' % begin)
+            # if end is not None:
+            #     out.append('|ae %3d' % end)
+            if len(out)>1:
+                g.write('\t'.join(out))
+                g.write('\n')
 
 
 if __name__ == '__main__':

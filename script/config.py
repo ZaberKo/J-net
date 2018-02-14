@@ -24,8 +24,8 @@ answer_synthesis_model = {
 }
 
 training_config = {
-    'minibatch_size': 8192,  # in samples when using ctf reader, per worker
-    'epoch_size': 8232,  # in sequences, when using ctf reader 82326
+    'minibatch_size': 8192,  # in samples when using ctf reader, per worker8192
+    'epoch_size': 82326,  # in sequences, when using ctf reader 82326
     'log_freq': 500,  # in minibatchs(print for minibatch number: n*freq)
     'max_epochs': 1,
     'lr': 0.2,

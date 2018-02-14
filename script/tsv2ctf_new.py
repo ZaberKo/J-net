@@ -134,7 +134,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
+    return ctokens, qtokens, atokens,mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -142,16 +142,18 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(line,
+        ctokens, qtokens, atokens,mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(line,
                                                                                                                    vocab,
                                                                                                                    chars,
                                                                                                                    is_test)
 
-        for ctoken, qtoken, atoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
-                ctokens, qtokens, atokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
+        for ctoken, qtoken, atoken,mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
+                ctokens, qtokens, atokens, mtokens,cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
             out = [str(lineno)]
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            if mtoken is not None:
+                out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
             if atoken is not None:

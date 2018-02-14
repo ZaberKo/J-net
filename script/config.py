@@ -3,8 +3,8 @@ data_config = {
     'word_count_threshold': 10,
     'char_count_threshold': 50,
     'pickle_file': 'vocabs.pkl',
-    'glove_file': 'glove.6B.300d.txt',
-    'emb_dim': 300
+    'glove_file': 'glove.6B.100d.txt',
+    'emb_dim': 100
 }
 
 evidence_extraction_model = {
@@ -18,7 +18,7 @@ evidence_extraction_model = {
 }
 
 answer_synthesis_model = {
-    'emb_dim': 300,
+    'emb_dim': 100,
     'hidden_dim': 150,
     'attention_dim': 300  # todo: need to be diff form emb_dim
 }

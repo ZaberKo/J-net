@@ -123,7 +123,7 @@ class AnswerSynthesisModel(object):
         @C.Function
         def model_train(question, passage, answer):
             past_answer = Delay(initial_state=init_state)(answer)
-            return s2smodel(question, passage, answer)
+            return s2smodel(question, passage, past_answer)
 
         return model_train
 
@@ -166,8 +166,8 @@ class AnswerSynthesisModel(object):
         return synthesis_answer, criterion
 
 
-# a=AnswerSynthesisModel('config')
-# print(a.model()[0])
+a=AnswerSynthesisModel('config')
+print(a.model()[0])
 
 
 

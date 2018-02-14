@@ -150,21 +150,21 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
         for ctoken, qtoken, atoken,mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
                 ctokens, qtokens, atokens, mtokens,cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
             out = [str(lineno)]
-            if ctoken is not None:
-                out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            # if ctoken is not None:
+            #     out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
             if mtoken is not None:
                 out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
             if atoken is not None:
                 out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
-            if cwid is not None:
-                if cwid >= known:
-                    out.append('|cgw {}:{}'.format(0, 0))
-                    out.append('|cnw {}:{}'.format(cwid - known, 1))
-                else:
-                    out.append('|cgw {}:{}'.format(cwid, 1))
-                    out.append('|cnw {}:{}'.format(0, 0))
+            # if cwid is not None:
+            #     if cwid >= known:
+            #         out.append('|cgw {}:{}'.format(0, 0))
+            #         out.append('|cnw {}:{}'.format(cwid - known, 1))
+            #     else:
+            #         out.append('|cgw {}:{}'.format(cwid, 1))
+            #         out.append('|cnw {}:{}'.format(0, 0))
             if qwid is not None:
                 if qwid >= known:
                     out.append('|qgw {}:{}'.format(0, 0))
@@ -186,18 +186,18 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 else:
                     out.append('|mgw {}:{}'.format(mwid, 1))
                     out.append('|mnw {}:{}'.format(0, 0))
-            if ccid is not None:
-                outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
-                out.append('|cc %s' % outc)
-            if qcid is not None:
-                outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
-                out.append('|qc %s' % outq)
-            if acid is not None:
-                outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
-                out.append('|ac %s' % outa)
-            if mcid is not None:
-                outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
-                out.append('|mc %s' % outm)
+            # if ccid is not None:
+            #     outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
+            #     out.append('|cc %s' % outc)
+            # if qcid is not None:
+            #     outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
+            #     out.append('|qc %s' % outq)
+            # if acid is not None:
+            #     outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
+            #     out.append('|ac %s' % outa)
+            # if mcid is not None:
+            #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
+            #     out.append('|mc %s' % outm)
             if begin is not None:
                 out.append('|ab %3d' % begin)
             if end is not None:
@@ -212,7 +212,7 @@ if __name__ == '__main__':
     except:
         known, vocab, chars = populate_dicts(tsvs)
         vocab_dim = len(vocab)
-        known_npglove_matrix = np.zeros((vocab_dim, emb_dim), dtype=np.float32)
+        known_npglove_matrix = np.zeros((known, emb_dim), dtype=np.float32)
         with open(glove_file, 'r', encoding='utf-8') as file:
             for line in file:
                 parts = line.split()
@@ -223,8 +223,8 @@ if __name__ == '__main__':
         with open(vocab_map_file, 'wb') as f:
             pickle.dump((known, vocab, chars, known_npglove_matrix), f)
 
-    for tsv in tsvs:
-        tsv_name = os.path.join('./data', tsv)
-        with open('%s.tsv' % tsv_name, 'r', encoding='utf-8') as f:
-            with open('%s.ctf' % tsv_name, 'w', encoding='utf-8') as g:
-                tsv_to_ctf(f, g, vocab, chars, tsv == 'test')
+    # for tsv in tsvs:
+    #     tsv_name = os.path.join('./data', tsv)
+    #     with open('%s.tsv' % tsv_name, 'r', encoding='utf-8') as f:
+    #         with open('%s.ctf' % tsv_name, 'w', encoding='utf-8') as g:
+    #             tsv_to_ctf(f, g, vocab, chars, tsv == 'test')

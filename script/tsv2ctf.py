@@ -18,7 +18,7 @@ word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
 
 sanitize = str.maketrans({"|": None, "\n": None})
-tsvs = ['train']
+tsvs = 'train', 'dev', 'test'
 
 bos = '<BOS>'
 eos = '<EOS>'
@@ -151,20 +151,23 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
             out = [str(lineno)]
             # if ctoken is not None:
             #     out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            if mwid is not None:
+                out.append('|mw {}:{}'.format(mwid, 1))
             if mtoken is not None:
                 out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
+            if qwid is not None:
+                out.append('|qw {}:{}'.format(qwid, 1))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
+            if awid is not None:
+                out.append('|aw {}:{}'.format(awid, 1))
             if atoken is not None:
                 out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
             # if cwid is not None:
             #     out.append('|cw {}:{}'.format(cwid, 1))
-            if qwid is not None:
-                out.append('|qw {}:{}'.format(qwid, 1))
-            if awid is not None:
-                out.append('|aw {}:{}'.format(awid, 1))
-            if mwid is not None:
-                out.append('|mw {}:{}'.format(mwid, 1))
+
+
+
             # if ccid is not None:
             #     outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
             #     out.append('|cc %s' % outc)
@@ -181,7 +184,7 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
             #     out.append('|ab %3d' % begin)
             # if end is not None:
             #     out.append('|ae %3d' % end)
-            if len(out)>1:
+            if len(out) > 1:
                 g.write('\t'.join(out))
                 g.write('\n')
 

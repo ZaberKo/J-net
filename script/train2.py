@@ -65,8 +65,8 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
     learner = C.adam(model.parameters, lr, momentum,minibatch_size=mb_size,epoch_size=epoch_size)
 
-    if C.Communicator.num_workers() > 1:
-        learner = C.data_parallel_distributed_learner(learner)
+    # if C.Communicator.num_workers() > 1:
+    #     learner = C.data_parallel_distributed_learner(learner)
 
     if profiling:
         C.debugging.start_profiler(sync_gpu=True)
@@ -77,22 +77,27 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
     trainer = C.Trainer(model, criterion, learner, [cntk_writer1, cntk_writer2,tensorboard_writer])
 
-    session = C.training_session(
-        trainer=trainer,
-        mb_source=mb_source,
-        mb_size=mb_size,
-        model_inputs_to_streams=input_map,
-        progress_frequency=(mb_size, C.DataUnit.minibatch),
-        checkpoint_config=C.CheckpointConfig(
-            filename=model_path,
-            frequency=(epoch_size, C.DataUnit.sample),
-            restore=isrestore,
-            preserve_all=True
-        )
+    # session = C.training_session(
+    #     trainer=trainer,
+    #     mb_source=mb_source,
+    #     mb_size=mb_size,
+    #     model_inputs_to_streams=input_map,
+    #     progress_frequency=(mb_size, C.DataUnit.minibatch),
+    #     checkpoint_config=C.CheckpointConfig(
+    #         filename=model_path,
+    #         frequency=(epoch_size, C.DataUnit.sample),
+    #         restore=isrestore,
+    #         preserve_all=True
+    #     )
+    #
+    # )
 
-    )
-
-    session.train()
+    for epoch in range(max_epochs):
+        num_seq = 0
+        while num_seq <= epoch_size:
+            data = mb_source.next_minibatch(mb_size, input_map=input_map)
+            trainer.train_minibatch(data)
+            num_seq+=trainer.previous_minibatch_sample_count
 
     if profiling:
         C.debugging.stop_profiler()

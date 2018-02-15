@@ -3,7 +3,7 @@ import os
 import pickle
 
 from cntk.layers import *
-
+import scipy.sparse
 from utils import BiRecurrence
 
 
@@ -13,7 +13,7 @@ class AnswerSynthesisModel(object):
         model_config = importlib.import_module(config_file).answer_synthesis_model
 
         self.abs_path = os.path.dirname(os.path.abspath(__file__))
-        pickle_file = os.path.join(self.abs_path, 'data', data_config['pickle_file'])
+        pickle_file = os.path.join(self.abs_path,'data', data_config['pickle_file'])
         with open(pickle_file, 'rb') as vf:
             known, vocab, chars, npglove_matrix = pickle.load(vf)
 
@@ -28,12 +28,12 @@ class AnswerSynthesisModel(object):
         self.PassageSequence = SequenceOver[self.passage_seq_axis][Tensor[self.vocab_dim]]
         self.QuestionSequence = SequenceOver[self.question_seq_axis][Tensor[self.vocab_dim]]
         self.AnswerSequence = SequenceOver[self.answer_seq_axis][Tensor[self.vocab_dim]]
-        self.emb_layer = Embedding(self.emb_dim, init=self.npglove_matrix)
+        self.emb_layer=Embedding(self.emb_dim, init=self.npglove_matrix)
         self.bos = '<BOS>'
         self.eos = '<EOS>'
         # todo: what about parameter?
 
-        self.start_word = C.constant(np.zeros(self.vocab_dim, dtype=np.float32))
+        # self.start_word = C.constant(scipy.sparse.csr_matrix(np.zeros(self.vocab_dim, dtype=np.float32),shape=(1,self.vocab_dim)))
         self.end_word_idx = vocab[self.eos]
 
     def question_encoder_factory(self):
@@ -42,7 +42,7 @@ class AnswerSynthesisModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim)),
             ], name='question_encoder')
         return model
 
@@ -113,14 +113,17 @@ class AnswerSynthesisModel(object):
                 att_p_dense(att_p),
                 hidden_dense(hidden)
             )
-            word = C.sequence.softmax(readout)
+            word = C.hardmax(C.softmax(readout))
             return word
 
         return decoder
 
-    def model_train_factory(self, s2smodel):
+    def model_train_factory(self):
+        s2smodel = self.model_factory()
+
         @C.Function
         def model_train(question, passage, answer):
+            # past_answer=C.sequence.delay(answer)
             past_answer = Delay(initial_state=0)(answer)
             return s2smodel(question, passage, past_answer)
 
@@ -149,16 +152,38 @@ class AnswerSynthesisModel(object):
         return criterion
 
     def model(self):
-        question_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.question_seq_axis, name='question')
-        passage_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.passage_seq_axis, name='passage')
-        answer_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.answer_seq_axis, name='answer')
+        question_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.question_seq_axis,
+                                                 name='question')
+        passage_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.passage_seq_axis,
+                                                name='passage')
+        answer_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.answer_seq_axis,
+                                               name='answer')
 
-        s2smodel = self.model_factory()
+        mb=self.create_mb_and_map('./data/train.ctf',self.vocab_dim)
+        data=mb.next_minibatch(10)[mb.streams.answer_words]
+        # y=C.sequence.past_value(answer_seq)
+        # print(y.eval({answer_seq:data}))
+        y=C.layers.Delay(initial_state=0)(answer_seq)
+        print(y(data))
 
-        train_model = self.model_train_factory(s2smodel)
-        criterion_model = self.criterion_factory()
 
-        synthesis_answer = train_model(question_seq, passage_seq, answer_seq)
-        criterion = criterion_model(synthesis_answer, answer_seq)
+    def create_mb_and_map(self,data_file, vocab_dim, randomize=True, repeat=True):
+        mb_source = C.io.MinibatchSource(
+            C.io.CTFDeserializer(
+                data_file,
+                C.io.StreamDefs(
+                    select_context_words=C.io.StreamDef('mw', shape=vocab_dim, is_sparse=True),
+                    query_words=C.io.StreamDef('qw', shape=vocab_dim, is_sparse=True),
+                    answer_words=C.io.StreamDef('aw', shape=vocab_dim, is_sparse=True)
+                )),
+            randomize=randomize,
+            max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1)
 
-        return synthesis_answer, criterion
+        return mb_source
+
+a=AnswerSynthesisModel('config')
+a.model()
+
+
+
+

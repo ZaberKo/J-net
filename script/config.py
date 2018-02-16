@@ -11,16 +11,15 @@ evidence_extraction_model = {
     'hidden_dim': 100,
     'char_convs': 100,
     'char_emb_dim': 8,
-    'dropout': 0.2,
-    'highway_layers': 2,
-    'two_step': True,
-    'use_cudnn': True,
+    'dropout': 0.1,
+    'r': 0.8,
 }
 
 answer_synthesis_model = {
     'emb_dim': 100,
     'hidden_dim': 150,
-    'attention_dim': 300  # todo: need to be diff form emb_dim
+    'attention_dim': 300,  # todo: need to be diff form emb_dim
+    'dropout': 0.2,
 }
 
 training_config = {

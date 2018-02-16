@@ -3,7 +3,6 @@ import os
 import pickle
 
 import cntk as C
-from cntk.device import try_set_default_device, gpu
 
 from answer_synthesis_model import AnswerSynthesisModel
 
@@ -37,7 +36,7 @@ def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=False):
     return mb_source, input_map
 
 
-def train(data_path, model_path, log_file, config_file, isrestore=False, profiling=True, gen_heartbeat=False):
+def train(data_path, model_path, log_path, config_file, isrestore=False, profiling=True, gen_heartbeat=False):
     answer_synthesis_model = AnswerSynthesisModel(config_file)
     model, criterion = answer_synthesis_model.model()
     training_config = importlib.import_module(config_file).training_config
@@ -53,9 +52,10 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
     vocab_dim = len(vocab)
 
-    cntk_writer1 = C.logging.ProgressPrinter(num_epochs=max_epochs,  tag='Training', log_to_file=log_file,
-                                            rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
-    cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training2',
+    cntk_writer1 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training',
+                                             log_to_file=os.path.join(log_path, 'cntk.log'),
+                                             rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
+    cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training_std',
                                              rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
     tensorboard_writer = C.logging.TensorBoardProgressWriter(10, './tensorboard', 0, model)
 
@@ -63,7 +63,7 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
     lr = C.learning_parameter_schedule(training_config['lr'], minibatch_size=mb_size)
     momentum = C.momentum_schedule(training_config['momentum'], minibatch_size=mb_size)
 
-    learner = C.adam(model.parameters, lr, momentum,minibatch_size=mb_size,epoch_size=epoch_size)
+    learner = C.adam(model.parameters, lr, momentum, minibatch_size=mb_size, epoch_size=epoch_size)
 
     if C.Communicator.num_workers() > 1:
         learner = C.data_parallel_distributed_learner(learner)
@@ -75,7 +75,7 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
     mb_source, input_map = create_mb_and_map(model, train_data_file, vocab_dim)
 
-    trainer = C.Trainer(model, criterion, learner, [cntk_writer1, cntk_writer2,tensorboard_writer])
+    trainer = C.Trainer(model, criterion, learner, [cntk_writer1, cntk_writer2, tensorboard_writer])
 
     session = C.training_session(
         trainer=trainer,
@@ -83,11 +83,12 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
         mb_size=mb_size,
         model_inputs_to_streams=input_map,
         progress_frequency=(mb_size, C.DataUnit.minibatch),
+        max_samples=max_epochs * mb_size,
         checkpoint_config=C.CheckpointConfig(
-            filename=model_path,
+            filename=os.path.join(model_path,'ans_model'),
             frequency=(epoch_size, C.DataUnit.sample),
             restore=isrestore,
-            preserve_all=True
+            # preserve_all=True
         )
 
     )
@@ -99,13 +100,15 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
 
 if __name__ == '__main__':
-    try_set_default_device(C.cpu())
+    # try_set_default_device(C.cpu())
     abs_path = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(abs_path, 'Models')
+    model_path = os.path.join(abs_path, 'Model')
     data_path = os.path.join(abs_path, 'data')
     log_path = os.path.join(abs_path, 'log')
     config_file = 'config'
     try:
+        print('===============Training Start=============')
         train(data_path, model_path, log_path, config_file)
+        print('===============Training Finish=============')
     finally:
         C.Communicator.finalize()

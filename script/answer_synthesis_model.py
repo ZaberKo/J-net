@@ -9,8 +9,9 @@ from utils import BiRecurrence
 
 class AnswerSynthesisModel(object):
     def __init__(self, config_file):
-        data_config = importlib.import_module(config_file).data_config
-        model_config = importlib.import_module(config_file).answer_synthesis_model
+        config=importlib.import_module(config_file)
+        data_config = config.data_config
+        model_config = config.answer_synthesis_model
 
         self.abs_path = os.path.dirname(os.path.abspath(__file__))
         pickle_file = os.path.join(self.abs_path, 'data', data_config['pickle_file'])
@@ -162,3 +163,4 @@ class AnswerSynthesisModel(object):
         criterion = criterion_model(synthesis_answer, answer_seq)
 
         return synthesis_answer, criterion
+

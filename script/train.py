@@ -17,7 +17,7 @@ def argument_by_name(func, name):
         return found[0]
 
 
-def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=False):
+def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
     mb_source = C.io.MinibatchSource(
         C.io.CTFDeserializer(
             data_file,
@@ -53,7 +53,7 @@ def train(data_path, model_path, log_path, config_file, isrestore=False, profili
     vocab_dim = len(vocab)
 
     cntk_writer1 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training',
-                                             log_to_file=os.path.join(log_path, 'cntk.log'),
+                                             log_to_file=os.path.join(log_path, 'log_'),
                                              rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
     cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training_std',
                                              rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
@@ -83,10 +83,10 @@ def train(data_path, model_path, log_path, config_file, isrestore=False, profili
         mb_size=mb_size,
         model_inputs_to_streams=input_map,
         progress_frequency=(mb_size, C.DataUnit.minibatch),
-        max_samples=max_epochs * mb_size,
+        max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
             filename=os.path.join(model_path,'ans_model'),
-            frequency=(epoch_size, C.DataUnit.sample),
+            frequency=(epoch_size*10, C.DataUnit.sample),
             restore=isrestore,
             # preserve_all=True
         )

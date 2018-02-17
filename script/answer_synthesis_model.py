@@ -38,7 +38,7 @@ class AnswerSynthesisModel(object):
         self.end_word_idx = vocab[self.eos]
 
     def question_encoder_factory(self):
-        with default_options(initial_state=0.1):
+        with default_options(enable_self_stabilization=True):
             model = Sequential([
                 self.emb_layer,
                 Stabilizer(),
@@ -48,7 +48,7 @@ class AnswerSynthesisModel(object):
         return model
 
     def passage_encoder_factory(self):
-        with default_options(initial_state=0.1):
+        with default_options(enable_self_stabilization=True):
             model = Sequential([
                 self.emb_layer,
                 Stabilizer(),
@@ -60,11 +60,11 @@ class AnswerSynthesisModel(object):
     def model_factory(self):
         question_encoder = self.question_encoder_factory()
         passage_encoder = self.passage_encoder_factory()
-
+        #todo: add bias by self
         q_attention_layer = AttentionModel(self.attention_dim, name='query_attention')
         p_attention_layer = AttentionModel(self.attention_dim, name='passage_attention')
         emb_layer = self.emb_layer
-        decoder_gru = GRU(self.hidden_dim)
+        decoder_gru = GRU(self.hidden_dim,enable_self_stabilization=True)
         decoder_init_dense = Dense(self.hidden_dim, activation=C.tanh, bias=True)
         # for readout_layer
         emb_dense = Dense(self.vocab_dim)

@@ -8,9 +8,11 @@ data_config = {
 }
 
 evidence_extraction_model = {
-    'hidden_dim': 100,
+    'word_emb_dim': 100,
     'char_convs': 100,
     'char_emb_dim': 8,
+    'hidden_dim': 150,
+    'attention_dim': 300,
     'dropout': 0.1,
     'r': 0.8,
 }
@@ -18,16 +20,16 @@ evidence_extraction_model = {
 answer_synthesis_model = {
     'emb_dim': 100,
     'hidden_dim': 150,
-    'attention_dim': 300,  # todo: need to be diff form emb_dim
+    'attention_dim': 300,
     'dropout': 0.2,
 }
 
 training_config = {
-    'minibatch_size': 8192,  # in samples when using ctf reader, per worker8192
+    'minibatch_size': 100,  # in samples when using ctf reader, per worker8192
     'epoch_size': 82326,  # in sequences, when using ctf reader 82326
     'log_freq': 500,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 1,
-    'lr': 0.2,
+    'max_epochs': 300,
+    'lr': 1,
     'momentum': 0.9,
     'train_data': 'train.ctf',  # or 'train.tsv'
     'val_data': 'dev.ctf',

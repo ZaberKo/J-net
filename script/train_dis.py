@@ -3,7 +3,6 @@ import os
 import pickle
 
 import cntk as C
-from cntk.device import try_set_default_device, gpu
 
 from answer_synthesis_model import AnswerSynthesisModel
 
@@ -18,7 +17,7 @@ def argument_by_name(func, name):
         return found[0]
 
 
-def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=False):
+def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
     mb_source = C.io.MinibatchSource(
         C.io.CTFDeserializer(
             data_file,
@@ -37,7 +36,7 @@ def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=False):
     return mb_source, input_map
 
 
-def train(data_path, model_path, log_file, config_file, isrestore=False, profiling=True, gen_heartbeat=False):
+def train(data_path, model_path, log_path, config_file, isrestore=False, profiling=False, gen_heartbeat=False):
     answer_synthesis_model = AnswerSynthesisModel(config_file)
     model, criterion = answer_synthesis_model.model()
     training_config = importlib.import_module(config_file).training_config
@@ -53,64 +52,73 @@ def train(data_path, model_path, log_file, config_file, isrestore=False, profili
 
     vocab_dim = len(vocab)
 
-    cntk_writer1 = C.logging.ProgressPrinter(num_epochs=max_epochs,  tag='Training', log_to_file=log_file,
-                                            rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
-    cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training2',
-                                             rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
+    cntk_writer1 = C.logging.ProgressPrinter(
+        # freq=100,
+        # distributed_freq=100,
+        num_epochs=max_epochs,
+        tag='Training',
+        log_to_file=os.path.join(log_path, 'log_'),
+        rank=C.Communicator.rank(),
+        gen_heartbeat=gen_heartbeat
+    )
+    # cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training_std',
+    #                                          rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
     tensorboard_writer = C.logging.TensorBoardProgressWriter(10, './tensorboard', 0, model)
 
     # todo: can be improved
     lr = C.learning_parameter_schedule(training_config['lr'], minibatch_size=mb_size)
     momentum = C.momentum_schedule(training_config['momentum'], minibatch_size=mb_size)
 
-    learner = C.adam(model.parameters, lr, momentum,minibatch_size=mb_size,epoch_size=epoch_size)
+    learner = C.adam(model.parameters, lr, momentum, minibatch_size=mb_size, epoch_size=epoch_size)
 
-    # if C.Communicator.num_workers() > 1:
-    #     learner = C.data_parallel_distributed_learner(learner)
+    if C.Communicator.num_workers() > 1:
+        learner = C.data_parallel_distributed_learner(learner)
 
     if profiling:
         C.debugging.start_profiler(sync_gpu=True)
+        C.debugging.enable_profiler()
 
     train_data_file = os.path.join(data_path, training_config['train_data'])
 
     mb_source, input_map = create_mb_and_map(model, train_data_file, vocab_dim)
 
-    trainer = C.Trainer(model, criterion, learner, [cntk_writer1, cntk_writer2,tensorboard_writer])
+    trainer = C.Trainer(model, criterion, learner, [cntk_writer1, tensorboard_writer])
 
-    # session = C.training_session(
-    #     trainer=trainer,
-    #     mb_source=mb_source,
-    #     mb_size=mb_size,
-    #     model_inputs_to_streams=input_map,
-    #     progress_frequency=(mb_size, C.DataUnit.minibatch),
-    #     checkpoint_config=C.CheckpointConfig(
-    #         filename=model_path,
-    #         frequency=(epoch_size, C.DataUnit.sample),
-    #         restore=isrestore,
-    #         preserve_all=True
-    #     )
-    #
-    # )
+    session = C.training_session(
+        trainer=trainer,
+        mb_source=mb_source,
+        mb_size=mb_size,
+        model_inputs_to_streams=input_map,
+        progress_frequency=(mb_size, C.DataUnit.minibatch),
+        max_samples=max_epochs * epoch_size,
+        checkpoint_config=C.CheckpointConfig(
+            filename=os.path.join(model_path, 'ans_model'),
+            frequency=(epoch_size * 10, C.DataUnit.sample),
+            restore=isrestore,
+            # preserve_all=True
+        )
 
-    for epoch in range(max_epochs):
-        num_seq = 0
-        while num_seq <= epoch_size:
-            data = mb_source.next_minibatch(mb_size, input_map=input_map)
-            trainer.train_minibatch(data)
-            num_seq+=trainer.previous_minibatch_sample_count
+    )
+
+    session.train()
+    tensorboard_writer.flush()
+    tensorboard_writer.close()
 
     if profiling:
+        C.debugging.disable_profiler()
         C.debugging.stop_profiler()
 
 
 if __name__ == '__main__':
-    try_set_default_device(C.cpu())
+    # try_set_default_device(C.cpu())
     abs_path = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(abs_path, 'Models')
+    model_path = os.path.join(abs_path, 'Model')
     data_path = os.path.join(abs_path, 'data')
     log_path = os.path.join(abs_path, 'log')
     config_file = 'config'
     try:
-        train(data_path, model_path, log_path, config_file)
+        print('===============Training Start=============')
+        train(data_path, model_path, log_path, config_file, gen_heartbeat=True)
+        print('===============Training Finish=============')
     finally:
         C.Communicator.finalize()

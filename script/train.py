@@ -36,13 +36,16 @@ def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
     return mb_source, input_map
 
 
-def train(data_path, model_path, log_path, config_file, isrestore=False, profiling=True, gen_heartbeat=False):
+def train(data_path, model_path, log_path, config_file):
     answer_synthesis_model = AnswerSynthesisModel(config_file)
     model, criterion = answer_synthesis_model.model()
     training_config = importlib.import_module(config_file).training_config
     data_config = importlib.import_module(config_file).data_config
     max_epochs = training_config['max_epochs']
-    log_freq = training_config['log_freq']
+    log_freq=training_config['log_freq']
+    isrestore = training_config['isrestore']
+    profiling = training_config['profiling']
+    gen_heartbeat = training_config['gen_heartbeat']
     mb_size = training_config['minibatch_size']
     epoch_size = training_config['epoch_size']
 
@@ -52,11 +55,23 @@ def train(data_path, model_path, log_path, config_file, isrestore=False, profili
 
     vocab_dim = len(vocab)
 
-    cntk_writer1 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training',
-                                             log_to_file=os.path.join(log_path, 'log_'),
-                                             rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
-    cntk_writer2 = C.logging.ProgressPrinter(num_epochs=max_epochs, tag='Training_std',
-                                             rank=C.Communicator.rank(), gen_heartbeat=gen_heartbeat)
+    cntk_writer1 = C.logging.ProgressPrinter(
+        # freq=log_freq,
+        # distributed_freq=100,
+        # num_epochs=max_epochs,
+        tag='Training',
+        log_to_file=os.path.join(log_path, 'log_'),
+        rank=C.Communicator.rank(),
+        gen_heartbeat=gen_heartbeat
+    )
+    cntk_writer2 = C.logging.ProgressPrinter(
+        freq=log_freq,
+        distributed_freq=log_freq,
+        num_epochs=max_epochs,
+        tag='Training2std',
+        rank=C.Communicator.rank(),
+        gen_heartbeat=gen_heartbeat
+    )
     tensorboard_writer = C.logging.TensorBoardProgressWriter(10, './tensorboard', 0, model)
 
     # todo: can be improved
@@ -70,6 +85,7 @@ def train(data_path, model_path, log_path, config_file, isrestore=False, profili
 
     if profiling:
         C.debugging.start_profiler(sync_gpu=True)
+        C.debugging.enable_profiler()
 
     train_data_file = os.path.join(data_path, training_config['train_data'])
 
@@ -82,20 +98,23 @@ def train(data_path, model_path, log_path, config_file, isrestore=False, profili
         mb_source=mb_source,
         mb_size=mb_size,
         model_inputs_to_streams=input_map,
-        progress_frequency=(mb_size, C.DataUnit.minibatch),
+        progress_frequency=(epoch_size, C.DataUnit.sample),
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
-            filename=os.path.join(model_path,'ans_model'),
-            frequency=(epoch_size*10, C.DataUnit.sample),
+            filename=os.path.join(model_path, 'ans_model'),
+            frequency=(10, C.DataUnit.sweep),
             restore=isrestore,
-            # preserve_all=True
+            preserve_all=True
         )
 
     )
 
     session.train()
+    tensorboard_writer.flush()
+    tensorboard_writer.close()
 
     if profiling:
+        C.debugging.disable_profiler()
         C.debugging.stop_profiler()
 
 

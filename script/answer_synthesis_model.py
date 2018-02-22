@@ -9,7 +9,7 @@ from utils import BiRecurrence
 
 class AnswerSynthesisModel(object):
     def __init__(self, config_file):
-        config=importlib.import_module(config_file)
+        config = importlib.import_module(config_file)
         data_config = config.data_config
         model_config = config.answer_synthesis_model
 
@@ -18,10 +18,11 @@ class AnswerSynthesisModel(object):
         with open(pickle_file, 'rb') as vf:
             known, vocab, chars, npglove_matrix = pickle.load(vf)
 
-        self.npglove_matrix = npglove_matrix
+        # self.npglove_matrix = npglove_matrix
         self.emb_dim = model_config['emb_dim']
         self.hidden_dim = model_config['hidden_dim']
         self.attention_dim = model_config['attention_dim']
+        self.dropout_rate = model_config['dropout']
         self.vocab_dim = len(vocab)
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
@@ -29,13 +30,13 @@ class AnswerSynthesisModel(object):
         self.PassageSequence = SequenceOver[self.passage_seq_axis][Tensor[self.vocab_dim]]
         self.QuestionSequence = SequenceOver[self.question_seq_axis][Tensor[self.vocab_dim]]
         self.AnswerSequence = SequenceOver[self.answer_seq_axis][Tensor[self.vocab_dim]]
-        self.emb_layer = Embedding(self.emb_dim, init=self.npglove_matrix)
-        self.bos = '<BOS>'
-        self.eos = '<EOS>'
-        # todo: what about parameter?
-
-        self.start_word = C.constant(np.zeros(self.vocab_dim, dtype=np.float32))
-        self.end_word_idx = vocab[self.eos]
+        self.emb_layer = Embedding(self.emb_dim, init=npglove_matrix)
+        # self.bos = '<BOS>'
+        # self.eos = '<EOS>'
+        # # todo: what about parameter?
+        #
+        # self.start_word = C.constant(np.zeros(self.vocab_dim, dtype=np.float32))
+        # self.end_word_idx = vocab[self.eos]
 
     def question_encoder_factory(self):
         with default_options(enable_self_stabilization=True):
@@ -43,7 +44,8 @@ class AnswerSynthesisModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim)),
+                Dropout(self.dropout_rate)
             ], name='question_encoder')
         return model
 
@@ -53,24 +55,28 @@ class AnswerSynthesisModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, [etp, fts, fte])
-                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim)),
+                Dropout(self.dropout_rate)
             ], name='passage_encoder')
         return model
 
     def model_factory(self):
         question_encoder = self.question_encoder_factory()
         passage_encoder = self.passage_encoder_factory()
-        #todo: add bias by self
+        # todo: add bias by self
         q_attention_layer = AttentionModel(self.attention_dim, name='query_attention')
         p_attention_layer = AttentionModel(self.attention_dim, name='passage_attention')
         emb_layer = self.emb_layer
-        decoder_gru = GRU(self.hidden_dim,enable_self_stabilization=True)
+        decoder_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         decoder_init_dense = Dense(self.hidden_dim, activation=C.tanh, bias=True)
         # for readout_layer
         emb_dense = Dense(self.vocab_dim)
         att_p_dense = Dense(self.vocab_dim)
         att_q_dense = Dense(self.vocab_dim)
         hidden_dense = Dense(self.vocab_dim)
+        # todo: is random better? is parameter better?
+        att_p_0 = C.constant(np.zeros(self.attention_dim, dtype=np.float32))
+        att_q_0 = C.constant(np.zeros(self.attention_dim, dtype=np.float32))
 
         @C.Function
         def decoder(question, passage, word_prev):
@@ -92,21 +98,18 @@ class AnswerSynthesisModel(object):
             @C.Function
             def gru_with_attention(hidden_prev, att_p_prev, att_q_prev, emb_prev):
                 x = C.splice(emb_prev, att_p_prev, att_q_prev, axis=0)
-                hidden = decoder_gru(hidden_prev, x)
-                att_p = p_attention_layer(h_p.output, hidden)
-                att_q = q_attention_layer(h_q.output, hidden)
+                hidden = C.dropout(decoder_gru(hidden_prev, x),self.dropout_rate)
+                att_p = C.dropout(p_attention_layer(h_p.output, hidden),self.dropout_rate)
+                att_q = C.dropout(q_attention_layer(h_q.output, hidden),self.dropout_rate)
+
                 return (hidden, att_p, att_q)
-
             # decoder_initialization
-            d_0 = (
-                splice(C.slice(h_p1, 0, self.hidden_dim, 0),
-                       C.slice(h_q1, 0, self.hidden_dim, 0)) >> decoder_init_dense).output
-            # todo: is random better? is parameter better?
-            att_p_0 = C.constant(np.zeros(self.attention_dim, dtype=np.float32))
-            att_q_0 = C.constant(np.zeros(self.attention_dim, dtype=np.float32))
-            init_state = (d_0, att_p_0, att_q_0)
+            d_0 = (splice(C.slice(h_p1, 0, self.hidden_dim, 0),
+                          C.slice(h_q1, 0, self.hidden_dim, 0)) >> decoder_init_dense).output
 
-            rnn = Recurrence(gru_with_attention, initial_state=init_state, return_full_state=True)(emb_prev)
+            init_state = (d_0, att_p_0, att_q_0)
+            rnn = Recurrence(gru_with_attention, initial_state=init_state, return_full_state=True) (emb_prev)
+
             hidden, att_p, att_q = rnn[0], rnn[1], rnn[2]
             readout = C.plus(
                 emb_dense(emb_prev),
@@ -127,24 +130,24 @@ class AnswerSynthesisModel(object):
 
         return model_train
 
-    def model_greedy_factory(self):
-        s2smodel = self.model_factory()
-
-        # todo: use beam search
-        @C.Function
-        def model_greedy(question: self.QuestionSequence, passage: self.PassageSequence):
-            unfold = C.layers.UnfoldFrom(lambda answer: s2smodel(question, passage, answer),
-                                         until_predicate=lambda w: w[..., self.end_word_idx]
-                                         )
-            return unfold(initial_state=self.start_word, dynamic_axes_like=passage)  # todo: use a new infinity axis
-
-        return model_greedy
+    # def model_greedy_factory(self):
+    #     s2smodel = self.model_factory()
+    #
+    #     # todo: use beam search
+    #     @C.Function
+    #     def model_greedy(question: self.QuestionSequence, passage: self.PassageSequence):
+    #         unfold = C.layers.UnfoldFrom(lambda answer: s2smodel(question, passage, answer),
+    #                                      until_predicate=lambda w: w[..., self.end_word_idx]
+    #                                      )
+    #         return unfold(initial_state=self.start_word, dynamic_axes_like=passage)  # todo: use a new infinity axis
+    #
+    #     return model_greedy
 
     def criterion_factory(self):
         @C.Function
         def criterion(answer, answer_label):
             loss = C.cross_entropy_with_softmax(answer, answer_label)
-            errs = C.classification_error(answer, answer_label)  # todo: runtime rouge-L
+            errs = C.minus(1, C.classification_error(answer, answer_label))  # todo: runtime rouge-L
             return (loss, errs)
 
         return criterion
@@ -164,3 +167,6 @@ class AnswerSynthesisModel(object):
 
         return synthesis_answer, criterion
 
+
+a=AnswerSynthesisModel('config')
+a.model()

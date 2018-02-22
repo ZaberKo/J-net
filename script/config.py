@@ -23,14 +23,17 @@ answer_synthesis_model = {
     'attention_dim': 300,
     'dropout': 0.2,
 }
-
+# isrestore=False, profiling=False, gen_heartbeat=False
 training_config = {
     'minibatch_size': 100,  # in samples when using ctf reader, per worker8192
     'epoch_size': 82326,  # in sequences, when using ctf reader 82326
-    'log_freq': 500,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 300,
-    'lr': 1,
+    'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
+    'max_epochs': 50,
+    'lr': 0.025,
     'momentum': 0.9,
+    'isrestore': False,
+    'profiling': False,
+    'gen_heartbeat': False,
     'train_data': 'train.ctf',  # or 'train.tsv'
     'val_data': 'dev.ctf',
     'val_interval': 1,  # interval in epochs to run validation

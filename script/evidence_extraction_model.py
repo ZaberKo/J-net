@@ -33,9 +33,7 @@ class EvidenceExtractionModel(object):
         self.PassageSequence = SequenceOver[self.passage_seq_axis][Tensor[self.vocab_dim]]
         self.QuestionSequence = SequenceOver[self.question_seq_axis][Tensor[self.vocab_dim]]
         self.AnswerSequence = SequenceOver[self.answer_seq_axis][Tensor[self.vocab_dim]]
-        self.charcnn=self.charcnn_factory()
         self.emb_layer = self.embed_factory()
-
 
     def charcnn_factory(self):
         conv_out = C.layers.Sequential([
@@ -49,11 +47,14 @@ class EvidenceExtractionModel(object):
 
     def embed_factory(self):
         glove_matrix = C.Constant(self.npglove_matrix)
+        charcnn = self.charcnn_factory()
 
+
+        #todo: char issues!!!!
         @C.Function
-        def embedding(input_seq):
-            word_emb = C.times(input_seq, glove_matrix)
-            char_emb = self.charcnn(input_seq)
+        def embedding(input_word):
+            word_emb = C.times(input_word, glove_matrix)
+            char_emb = charcnn(input_word)
             emb = C.splice(word_emb, char_emb)
             return emb
 
@@ -85,7 +86,7 @@ class EvidenceExtractionModel(object):
 
         C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
-
+        r_Q_att_layer=AttentionModel(self.attention_dim, name='r_Q_att_layer')
         @C.Function
         def soft_alignment(question, passage):
             U_Q = question_encoder(question)
@@ -98,23 +99,34 @@ class EvidenceExtractionModel(object):
                 return hidden
 
             V_P = Recurrence(V_P_gru_cell)(U_P)
-            return V_P
+            r_Q = r_Q_att_layer(U_Q.output,C.sequence.last(V_P))
+
+
+
+            return C.combine([V_P,r_Q])
+
+
 
         return soft_alignment
 
     def pointer_network_factory(self):
         soft_alignment = self.soft_alignment_factory()
         C_att_layer = AttentionModel(self.attention_dim, name='C_att_layer')
-        C_gru= GRU(self.hidden_dim, enable_self_stabilization=True)
+        C_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
+
         @C.Function
         def pointer_network(question, passage):
-            V_P = soft_alignment(question, passage)
+            V_P,r_Q = soft_alignment(question, passage)
 
             @C.Function
-            def H_A_gru_cell(hidden_prev, p_prev, x):
+            def H_A_gru_cell(hidden_prev):
                 # p_prev: dummy for output
-                c=C_att_layer(V_P.output,hidden_prev)
-                hidden=C_gru(hidden_prev,c)
+                c = C_att_layer(V_P.output, hidden_prev)
+                hidden = C_gru(hidden_prev, c)
+                return hidden
+
+            unfold = UnfoldFrom(H_A_gru_cell)
+            H_A=unfold(initial_state=r_Q,dynamic_axes_like=passage)
 
 
 a = EvidenceExtractionModel('config')

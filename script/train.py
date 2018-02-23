@@ -42,7 +42,7 @@ def train(data_path, model_path, log_path, config_file):
     training_config = importlib.import_module(config_file).training_config
     data_config = importlib.import_module(config_file).data_config
     max_epochs = training_config['max_epochs']
-    log_freq=training_config['log_freq']
+    log_freq = training_config['log_freq']
     isrestore = training_config['isrestore']
     profiling = training_config['profiling']
     gen_heartbeat = training_config['gen_heartbeat']
@@ -79,7 +79,7 @@ def train(data_path, model_path, log_path, config_file):
     momentum = C.momentum_schedule(training_config['momentum'], minibatch_size=mb_size)
 
     learner = C.adam(model.parameters, lr, momentum, minibatch_size=mb_size, epoch_size=epoch_size)
-
+    # learner = C.adadelta(model.parameters, lr)
     if C.Communicator.num_workers() > 1:
         learner = C.data_parallel_distributed_learner(learner)
 
@@ -102,7 +102,7 @@ def train(data_path, model_path, log_path, config_file):
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
             filename=os.path.join(model_path, 'ans_model'),
-            frequency=(10, C.DataUnit.sweep),
+            frequency=(epoch_size*10, C.DataUnit.sample),
             restore=isrestore,
             preserve_all=True
         )

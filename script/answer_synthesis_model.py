@@ -68,7 +68,8 @@ class AnswerSynthesisModel(object):
         p_attention_layer = AttentionModel(self.attention_dim, name='passage_attention')
         emb_layer = self.emb_layer
         decoder_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
-        decoder_init_dense = Dense(self.hidden_dim, activation=C.tanh, bias=True)
+        decoder_init_dense_p = Dense(self.hidden_dim//2, activation=C.tanh, bias=True)
+        decoder_init_dense_q = Dense(self.hidden_dim//2, activation=C.tanh, bias=True)
         # for readout_layer
         emb_dense = Dense(self.vocab_dim)
         att_p_dense = Dense(self.vocab_dim)
@@ -79,7 +80,7 @@ class AnswerSynthesisModel(object):
         att_q_0 = C.constant(np.zeros(self.attention_dim, dtype=np.float32))
 
         @C.Function
-        def decoder(question, passage, word_prev):
+        def decoder(question:self.QuestionSequence, passage:self.PassageSequence, word_prev:self.AnswerSequence):
             # question encoder hidden state
             h_q = question_encoder(question)
             # passage encoder hidden state
@@ -104,8 +105,12 @@ class AnswerSynthesisModel(object):
 
                 return (hidden, att_p, att_q)
             # decoder_initialization
-            d_0 = (splice(C.slice(h_p1, 0, self.hidden_dim, 0),
-                          C.slice(h_q1, 0, self.hidden_dim, 0)) >> decoder_init_dense).output
+            # d_0 = (splice(C.slice(h_p1, 0, self.hidden_dim, 0),
+            #               C.slice(h_q1, 0, self.hidden_dim, 0)) >> decoder_init_dense).output
+            #todo: use weight sum
+            d_0=C.splice(decoder_init_dense_p(h_p1),decoder_init_dense_q(h_q1))
+            # print(d_0)
+            # print(d_0.output)
 
             init_state = (d_0, att_p_0, att_q_0)
             rnn = Recurrence(gru_with_attention, initial_state=init_state, return_full_state=True) (emb_prev)
@@ -124,7 +129,7 @@ class AnswerSynthesisModel(object):
 
     def model_train_factory(self, s2smodel):
         @C.Function
-        def model_train(question, passage, answer):
+        def model_train(question:self.QuestionSequence, passage:self.PassageSequence, answer:self.AnswerSequence):
             past_answer = Delay(initial_state=0)(answer)
             return s2smodel(question, passage, past_answer)
 
@@ -168,5 +173,5 @@ class AnswerSynthesisModel(object):
         return synthesis_answer, criterion
 
 
-a=AnswerSynthesisModel('config')
-a.model()
+# a=AnswerSynthesisModel('config')
+# a.model()

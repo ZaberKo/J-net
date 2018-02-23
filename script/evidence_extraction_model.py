@@ -34,6 +34,7 @@ class EvidenceExtractionModel(object):
         self.PassageSequence = SequenceOver[self.passage_seq_axis][Tensor[self.vocab_dim]]
         self.QuestionSequence = SequenceOver[self.question_seq_axis][Tensor[self.vocab_dim]]
         self.AnswerSequence = SequenceOver[self.answer_seq_axis][Tensor[self.vocab_dim]]
+        self.pointer_seq=SequenceOver
         self.emb_layer = self.embed_factory()
 
     def charcnn_factory(self):
@@ -65,7 +66,7 @@ class EvidenceExtractionModel(object):
         glove_matrix = C.Constant(self.npglove_matrix)
 
         @C.Function
-        def embedding(input_word, input_char_raw):
+        def embedding(input_word):
             word_emb = C.times(input_word, glove_matrix)
 
             return word_emb
@@ -114,7 +115,7 @@ class EvidenceExtractionModel(object):
             V_P = Recurrence(V_P_gru_cell)(U_P)
             r_Q = r_Q_att_layer(U_Q.output, C.sequence.last(V_P))
 
-            return C.combine([V_P, r_Q])
+            return C.combine(V_P, r_Q)
 
         return soft_alignment
 
@@ -134,8 +135,9 @@ class EvidenceExtractionModel(object):
 
         @C.Function
         def pointer_network(question, passage):
-            V_P, r_Q = soft_alignment(question, passage)
-            encoder_hidden_state = V_P.output
+            result = soft_alignment(question, passage)
+            V_P, r_Q=result[0],result[1]
+            encoder_hidden_state = V_P
 
             @C.Function
             def H_A_gru_cell(hidden_prev):
@@ -168,10 +170,27 @@ class EvidenceExtractionModel(object):
                 return (attention_weights,hidden)
 
             unfold = UnfoldFrom(H_A_gru_cell)
-            H_A = unfold(initial_state=r_Q, dynamic_axes_like=passage)
+            pointer_prob = unfold(initial_state=r_Q,dynamic_axes_like=passage)
+            return pointer_prob
 
         return pointer_network
 
 
+    def criterion_factory(self):
+        @C.Function
+        def criterion(begin,end,begin_label,end_label):
+            pass
+
+
+    def model(self):
+        question_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.question_seq_axis, name='question')
+        passage_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.passage_seq_axis, name='passage')
+        answer_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.answer_seq_axis, name='answer')
+        begin=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='begin')
+        end=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='end')
+
+        pointer_network=self.pointer_network_factory()
+
+
 a = EvidenceExtractionModel('config')
-print(a.embed_factory())
+print(a.pointer_network_factory())

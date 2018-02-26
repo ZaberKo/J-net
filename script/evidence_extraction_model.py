@@ -91,20 +91,20 @@ class EvidenceExtractionModel(object):
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
         r_Q_att_layer = AttentionModel(self.attention_dim, name='r_Q_att_layer')
 
-
+        @C.Function
         def soft_alignment(question:self.QuestionSequence, passage:self.PassageSequence):
             U_Q = question_encoder(question)
             U_P = passage_encoder(passage)
 
 
+            @C.Function
             def V_P_gru_cell(hidden_prev, x):
                 C_Q = C_Q_att_layer(U_Q.output, C.splice(x, hidden_prev))
                 hidden = C_Q_gru(hidden_prev, C_Q)
                 return hidden
 
-            V_P = Recurrence(V_P_gru_cell)(U_P)
+            V_P = Recurrence(C_Q_gru)(U_P)
             r_Q = r_Q_att_layer(U_Q.output, C.sequence.last(V_P))
-
             return (V_P, r_Q)
 
         return soft_alignment
@@ -172,6 +172,7 @@ class EvidenceExtractionModel(object):
 
         def criterion(begin,end,begin_label,end_label):
             def cross_entropy_loss(x,label):
+                # np.ones_like()
                 result=C.plus(
                     C.element_times(label,C.log(x)),
                     C.element_times(1-label,C.log(1-x))
@@ -189,9 +190,15 @@ class EvidenceExtractionModel(object):
         begin=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='begin')
         end=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='end')
 
+
+        # print(soft(question_seq, passage_seq))
         pointer_network=self.pointer_network_factory()
-        pointer_network(question_seq,passage_seq)
+        # criterion=self.criterion_factory()
+        #
+        # pointer_network(question_seq,passage_seq)
+        #
+        # loss = criterion()
 
 
 a = EvidenceExtractionModel('config')
-print(a.model())
+a.model()

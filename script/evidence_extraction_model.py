@@ -3,7 +3,7 @@ import os
 import pickle
 
 from cntk.layers import *
-
+import cntk as C
 from utils import BiRecurrence
 
 
@@ -177,9 +177,18 @@ class EvidenceExtractionModel(object):
 
 
     def criterion_factory(self):
-        @C.Function
+
         def criterion(begin,end,begin_label,end_label):
-            pass
+            def cross_entropy_loss(x,label):
+                result=C.plus(
+                    C.element_times(label,C.log(x)),
+                    C.element_times(1-label,C.log(1-x))
+                )
+                return result
+            loss=C.negate(C.plus(cross_entropy_loss(begin,begin_label),cross_entropy_loss(end,end_label)))
+            return loss
+
+        return criterion()
 
 
     def model(self):
@@ -193,4 +202,4 @@ class EvidenceExtractionModel(object):
 
 
 a = EvidenceExtractionModel('config')
-print(a.pointer_network_factory())
+print(a.model())

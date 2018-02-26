@@ -118,6 +118,13 @@ def train(data_path, model_path, log_path, config_file):
         C.debugging.stop_profiler()
 
 
+def evaluate():
+    pass
+
+def
+
+
+
 if __name__ == '__main__':
     # try_set_default_device(C.cpu())
     abs_path = os.path.dirname(os.path.abspath(__file__))

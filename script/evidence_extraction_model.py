@@ -26,7 +26,6 @@ class EvidenceExtractionModel(object):
         self.char_convs = model_config['char_convs']
         self.hidden_dim = model_config['hidden_dim']
         self.attention_dim = model_config['attention_dim']
-        self.r = model_config['r']
         self.dropout = model_config['dropout']
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
@@ -35,17 +34,17 @@ class EvidenceExtractionModel(object):
         self.QuestionSequence = SequenceOver[self.question_seq_axis][Tensor[self.vocab_dim]]
         self.AnswerSequence = SequenceOver[self.answer_seq_axis][Tensor[self.vocab_dim]]
         self.pointer_seq=SequenceOver
-        self.emb_layer = self.embed_factory()
+        self.emb_layer = Embedding(weights=npglove_matrix)
 
-    def charcnn_factory(self):
-        conv_out = C.layers.Sequential([
-            C.layers.Embedding(self.char_emb_dim),
-            C.layers.Dropout(self.dropout),
-            C.layers.Convolution2D((5, self.char_emb_dim), self.char_convs, activation=C.relu, init=C.glorot_uniform(),
-                                   bias=True, init_bias=0, name='charcnn_conv')])
-
-        max = C.reduce_max(conv_out, axis=1)
-        return C.reshape(max, self.char_convs)
+    # def charcnn_factory(self):
+    #     conv_out = C.layers.Sequential([
+    #         C.layers.Embedding(self.char_emb_dim),
+    #         C.layers.Dropout(self.dropout),
+    #         C.layers.Convolution2D((5, self.char_emb_dim), self.char_convs, activation=C.relu, init=C.glorot_uniform(),
+    #                                bias=True, init_bias=0, name='charcnn_conv')])
+    #
+    #     max = C.reduce_max(conv_out, axis=1)
+    #     return C.reshape(max, self.char_convs)
 
     # def embed_factory(self):
     #     glove_matrix = C.Constant(self.npglove_matrix)
@@ -62,16 +61,7 @@ class EvidenceExtractionModel(object):
     #
     #     return embedding
 
-    def embed_factory(self):
-        glove_matrix = C.Constant(self.npglove_matrix)
 
-        @C.Function
-        def embedding(input_word):
-            word_emb = C.times(input_word, glove_matrix)
-
-            return word_emb
-
-        return embedding
 
     def question_encoder_factory(self):
         with default_options(enable_self_stabilization=True):
@@ -101,27 +91,26 @@ class EvidenceExtractionModel(object):
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
         r_Q_att_layer = AttentionModel(self.attention_dim, name='r_Q_att_layer')
 
-        @C.Function
-        def soft_alignment(question, passage):
+
+        def soft_alignment(question:self.QuestionSequence, passage:self.PassageSequence):
             U_Q = question_encoder(question)
             U_P = passage_encoder(passage)
 
-            @C.Function
-            def V_P_gru_cell(hidden_prev, U_P_t):
-                C_Q = C_Q_att_layer(U_Q.output, C.splice(U_P_t, hidden_prev))
+
+            def V_P_gru_cell(hidden_prev, x):
+                C_Q = C_Q_att_layer(U_Q.output, C.splice(x, hidden_prev))
                 hidden = C_Q_gru(hidden_prev, C_Q)
                 return hidden
 
             V_P = Recurrence(V_P_gru_cell)(U_P)
             r_Q = r_Q_att_layer(U_Q.output, C.sequence.last(V_P))
 
-            return C.combine(V_P, r_Q)
+            return (V_P, r_Q)
 
         return soft_alignment
 
     def pointer_network_factory(self):
         soft_alignment = self.soft_alignment_factory()
-        C_att_layer = AttentionModel(self.attention_dim, name='C_att_layer')
         init = glorot_uniform()
         with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
             attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init,
@@ -134,9 +123,9 @@ class EvidenceExtractionModel(object):
         C_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
 
         @C.Function
-        def pointer_network(question, passage):
-            result = soft_alignment(question, passage)
-            V_P, r_Q=result[0],result[1]
+        def pointer_network(question:self.QuestionSequence, passage:self.PassageSequence):
+
+            V_P, r_Q=soft_alignment(question, passage)
             encoder_hidden_state = V_P
 
             @C.Function
@@ -169,9 +158,12 @@ class EvidenceExtractionModel(object):
                 hidden = C_gru(hidden_prev, c)
                 return (attention_weights,hidden)
 
-            unfold = UnfoldFrom(H_A_gru_cell)
-            pointer_prob = unfold(initial_state=r_Q,dynamic_axes_like=passage)
-            return pointer_prob
+            # unfold = UnfoldFrom(H_A_gru_cell)
+            # pointer_prob = unfold(initial_state=r_Q,dynamic_axes_like=passage)
+
+            p1,h1=H_A_gru_cell(r_Q)
+            p2,h2=H_A_gru_cell(h1)
+            return C.combine([p1,p2])
 
         return pointer_network
 
@@ -194,11 +186,11 @@ class EvidenceExtractionModel(object):
     def model(self):
         question_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.question_seq_axis, name='question')
         passage_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.passage_seq_axis, name='passage')
-        answer_seq = C.sequence.input_variable(self.vocab_dim, sequence_axis=self.answer_seq_axis, name='answer')
         begin=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='begin')
         end=C.sequence.input_variable(1,sequence_axis=self.passage_seq_axis,name='end')
 
         pointer_network=self.pointer_network_factory()
+        pointer_network(question_seq,passage_seq)
 
 
 a = EvidenceExtractionModel('config')

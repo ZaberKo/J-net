@@ -104,7 +104,7 @@ def train(data_path, model_path, log_path, config_file):
             filename=os.path.join(model_path, 'ans_model'),
             frequency=(epoch_size*10, C.DataUnit.sample),
             restore=isrestore,
-            preserve_all=True
+            # preserve_all=True
         )
 
     )
@@ -121,7 +121,7 @@ def train(data_path, model_path, log_path, config_file):
 def evaluate():
     pass
 
-def
+
 
 
 

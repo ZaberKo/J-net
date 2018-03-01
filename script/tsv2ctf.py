@@ -149,22 +149,24 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx,
                 eaidx):
             out = [str(lineno)]
-            # if ctoken is not None:
-            #     out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
-            if mwid is not None:
-                out.append('|mw {}:{}'.format(mwid, 1))
+            if ctoken is not None:
+                out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
+            if cwid is not None:
+                out.append('|cw {}:{}'.format(cwid, 1))
             if mtoken is not None:
                 out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
-            if qwid is not None:
-                out.append('|qw {}:{}'.format(qwid, 1))
+            if mwid is not None:
+                out.append('|mw {}:{}'.format(mwid, 1))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
-            if awid is not None:
-                out.append('|aw {}:{}'.format(awid, 1))
+            if qwid is not None:
+                out.append('|qw {}:{}'.format(qwid, 1))
             if atoken is not None:
                 out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
-            # if cwid is not None:
-            #     out.append('|cw {}:{}'.format(cwid, 1))
+            if awid is not None:
+                out.append('|aw {}:{}'.format(awid, 1))
+
+
 
 
 
@@ -180,10 +182,10 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
             # if mcid is not None:
             #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
             #     out.append('|mc %s' % outm)
-            # if begin is not None:
-            #     out.append('|ab %3d' % begin)
-            # if end is not None:
-            #     out.append('|ae %3d' % end)
+            if begin is not None:
+                out.append('|ab %3d' % begin)
+            if end is not None:
+                out.append('|ae %3d' % end)
             if len(out) > 1:
                 g.write('\t'.join(out))
                 g.write('\n')

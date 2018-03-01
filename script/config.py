@@ -14,7 +14,7 @@ evidence_extraction_model = {
     'hidden_dim': 150,
     'attention_dim': 300,
     'dropout': 0.1,
-    'r': 0.8,
+    'use_cuDNN':True
 }
 
 answer_synthesis_model = {
@@ -23,13 +23,13 @@ answer_synthesis_model = {
     'attention_dim': 300,
     'dropout': 0.2,
 }
-# isrestore=False, profiling=False, gen_heartbeat=False
+
 training_config = {
-    'minibatch_size': 100,  # in samples when using ctf reader, per worker8192
+    'minibatch_size': 1000,  # in samples when using ctf reader, per worker8192
     'epoch_size': 82326,  # in sequences, when using ctf reader 82326
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 1,
-    'lr': 0.025,
+    'max_epochs': 5,
+    'lr': 1,
     'momentum': 0.9,
     'isrestore': False,
     'profiling': False,

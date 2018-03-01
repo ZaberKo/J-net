@@ -6,7 +6,7 @@ import cntk as C
 
 from answer_synthesis_model import AnswerSynthesisModel
 
-
+model_name='ans.model'
 def argument_by_name(func, name):
     found = [arg for arg in func.arguments if arg.name == name]
     if len(found) == 0:
@@ -22,9 +22,12 @@ def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
         C.io.CTFDeserializer(
             data_file,
             C.io.StreamDefs(
+                context_words=C.io.StreamDef('cw', shape=vocab_dim, is_sparse=True),
                 select_context_words=C.io.StreamDef('mw', shape=vocab_dim, is_sparse=True),
                 query_words=C.io.StreamDef('qw', shape=vocab_dim, is_sparse=True),
-                answer_words=C.io.StreamDef('aw', shape=vocab_dim, is_sparse=True)
+                answer_words=C.io.StreamDef('aw', shape=vocab_dim, is_sparse=True),
+                begin=C.io.StreamDef('ab', shape=vocab_dim, is_sparse=False),
+                end=C.io.StreamDef('ae', shape=vocab_dim, is_sparse=False)
             )),
         randomize=randomize,
         max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1)
@@ -48,6 +51,7 @@ def train(data_path, model_path, log_path, config_file):
     gen_heartbeat = training_config['gen_heartbeat']
     mb_size = training_config['minibatch_size']
     epoch_size = training_config['epoch_size']
+
 
     pickle_file = os.path.join(data_path, data_config['pickle_file'])
     with open(pickle_file, 'rb') as vf:
@@ -101,7 +105,7 @@ def train(data_path, model_path, log_path, config_file):
         progress_frequency=(epoch_size, C.DataUnit.sample),
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
-            filename=os.path.join(model_path, 'ans_model'),
+            filename=os.path.join(model_path, model_name),
             frequency=(epoch_size*10, C.DataUnit.sample),
             restore=isrestore,
             # preserve_all=True

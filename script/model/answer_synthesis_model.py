@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiRecurrence
+from utils import BiGRU
 
 
 class AnswerSynthesisModel(object):
@@ -42,7 +42,7 @@ class AnswerSynthesisModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiGRU(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
             ], name='question_encoder')
         return model
 
@@ -52,7 +52,7 @@ class AnswerSynthesisModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, [etp, fts, fte])
-                BiRecurrence(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiGRU(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
             ], name='passage_encoder')
         return model
 

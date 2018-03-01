@@ -7,10 +7,12 @@ from cntk.layers.blocks import _INFERRED
 def BiGRU(hidden_dim, num_layers=1, use_cudnn=True, name=''):
     if use_cudnn:
         W = C.parameter(_INFERRED + (hidden_dim,), init=C.glorot_uniform())
-
-        def func(x):
+        @C.Function
+        def cuDNN_bigru(x):
             return C.optimized_rnnstack(x, W, hidden_dim, num_layers, True, recurrent_op='gru',
                                         name=name)
+
+        return cuDNN_bigru
     else:
         return Sequential([
             (Recurrence(GRU(hidden_dim)),

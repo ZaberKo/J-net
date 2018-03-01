@@ -1,5 +1,5 @@
 data_config = {
-    'word_size': 25,
+    'word_size': 20,
     'word_count_threshold': 10,
     'char_count_threshold': 50,
     'pickle_file': 'vocabs.pkl',
@@ -14,7 +14,8 @@ evidence_extraction_model = {
     'hidden_dim': 150,
     'attention_dim': 300,
     'dropout': 0.1,
-    'use_cuDNN':True
+    'use_cuDNN':True,
+    'use_sparse':True
 }
 
 answer_synthesis_model = {

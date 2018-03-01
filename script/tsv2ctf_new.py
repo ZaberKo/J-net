@@ -195,9 +195,9 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
             if acid is not None:
                 outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
                 out.append('|ac %s' % outa)
-            if mcid is not None:
-                outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
-                out.append('|mc %s' % outm)
+            # if mcid is not None:
+            #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
+            #     out.append('|mc %s' % outm)
             if begin is not None:
                 out.append('|ab %3d' % begin)
             if end is not None:

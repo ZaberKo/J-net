@@ -21,9 +21,8 @@ def BiGRU(hidden_dim, num_layers=1, use_cudnn=True, name=''):
         ], name=name)
 
 
-def MyAttentionModel(attention_dim,
+def MyAttentionModel(attention_dim,hidden_dim,
                      init=default_override_or(glorot_uniform()),
-                     go_backwards=default_override_or(False),
                      enable_self_stabilization=default_override_or(True), name=''):
     '''
     AttentionModel(attention_dim, attention_span=None, attention_axis=None, init=glorot_uniform(), go_backwards=False, enable_self_stabilization=True, name='')
@@ -32,9 +31,8 @@ def MyAttentionModel(attention_dim,
     as described in Bahdanau, et al., "Neural machine translation by jointly learning to align and translate."
     '''
 
-    init = get_default_override(AttentionModel, init=init)
-    go_backwards = get_default_override(AttentionModel, go_backwards=go_backwards)
-    enable_self_stabilization = get_default_override(AttentionModel,
+    init = get_default_override(MyAttentionModel, init=init)
+    enable_self_stabilization = get_default_override(MyAttentionModel,
                                                      enable_self_stabilization=enable_self_stabilization)
     # model parameters
     with default_options(bias=False):  # all the projections have no bias
@@ -47,39 +45,32 @@ def MyAttentionModel(attention_dim,
         attn_proj_tanh = Stabilizer(enable_self_stabilization=enable_self_stabilization) >> Dense(1, init=init,
                                                                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
     attn_final_stab = Stabilizer(enable_self_stabilization=enable_self_stabilization)
-
+    decoder_hidden_state=C.parameter(hidden_dim)
     @Function
-    def new_attention(encoder_hidden_state, decoder_hidden_state):
-        # encode_hidden_state: [#, e] [h]
-        # decoder_hidden_state: [#, d] [H]
+    def new_attention(encoder_hidden_state):
         unpacked_encoder_hidden_state, valid_mask = C.sequence.unpack(encoder_hidden_state, padding_value=0).outputs
-        # unpacked_encoder_hidden_state: [#] [*=e, h]
-        # valid_mask: [#] [*=e]
-        projected_encoder_hidden_state = C.sequence.broadcast_as(attn_proj_enc(unpacked_encoder_hidden_state),
-                                                                 decoder_hidden_state)
-        # projected_encoder_hidden_state: [#, d] [*=e, attention_dim]
-        broadcast_valid_mask = C.sequence.broadcast_as(C.reshape(valid_mask, (1,), 1), decoder_hidden_state)
-        # broadcast_valid_mask: [#, d] [*=e]
+        projected_encoder_hidden_state = attn_proj_enc(unpacked_encoder_hidden_state)
         projected_decoder_hidden_state = attn_proj_dec(decoder_hidden_state)
         # projected_decoder_hidden_state: [#, d] [attention_dim]
         tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
         # tanh_output: [#, d] [*=e, attention_dim]
         attention_logits = attn_proj_tanh(tanh_output)
-        # attention_logits = [#, d] [*=e, 1]
-        minus_inf = C.constant(-1e+30)
-        masked_attention_logits = C.element_select(broadcast_valid_mask, attention_logits, minus_inf)
-        # masked_attention_logits = [#, d] [*=e]
-        attention_weights = C.softmax(masked_attention_logits, axis=0)
+
+        attention_weights = C.softmax(attention_logits, axis=0)
         attention_weights = Label('attention_weights')(attention_weights)
         # attention_weights = [#, d] [*=e]
         attended_encoder_hidden_state = C.reduce_sum(
-            attention_weights * C.sequence.broadcast_as(unpacked_encoder_hidden_state, attention_weights), axis=0)
+            attention_weights * unpacked_encoder_hidden_state, axis=0)
+        print(attended_encoder_hidden_state)
+
         # attended_encoder_hidden_state = [#, d] [1, h]
         output = attn_final_stab(C.reshape(attended_encoder_hidden_state, (), 0, 1))
         # output = [#, d], [h]
         return output
 
     return _inject_name(new_attention, name)
+
+
 
 
 # map from token to char offset

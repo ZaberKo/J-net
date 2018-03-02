@@ -4,7 +4,9 @@ data_config = {
     'char_count_threshold': 50,
     'pickle_file': 'vocabs.pkl',
     'glove_file': 'glove.6B.100d.txt',
-    'emb_dim': 100
+    'emb_dim': 100,
+    'is_limited_type':True,
+    'limited_types':['description']
 }
 
 evidence_extraction_model = {
@@ -26,11 +28,11 @@ answer_synthesis_model = {
 }
 
 training_config = {
-    'minibatch_size': 1000,  # in samples when using ctf reader, per worker8192
-    'epoch_size': 82326,  # in sequences, when using ctf reader 82326
+    'minibatch_size': 5,  # in samples when using ctf reader, per worker8192
+    'epoch_size': 820,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 5,
-    'lr': 1,
+    'max_epochs': 1,
+    'lr': 0.25,
     'momentum': 0.9,
     'isrestore': False,
     'profiling': False,

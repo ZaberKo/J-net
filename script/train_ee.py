@@ -10,25 +10,38 @@ from utils import *
 model_name = 'ee.model'
 
 
-def create_mb_and_map(func, data_file, vocab_dim, randomize=True, repeat=True):
+def create_mb_and_map(func, data_file, ee_model, randomize=True, repeat=True):
     mb_source = C.io.MinibatchSource(
         C.io.CTFDeserializer(
             data_file,
             C.io.StreamDefs(
-                context_words=C.io.StreamDef('cw', shape=vocab_dim, is_sparse=True),
-                select_context_words=C.io.StreamDef('mw', shape=vocab_dim, is_sparse=True),
-                query_words=C.io.StreamDef('qw', shape=vocab_dim, is_sparse=True),
-                answer_words=C.io.StreamDef('aw', shape=vocab_dim, is_sparse=True),
-                begin=C.io.StreamDef('ab', shape=1, is_sparse=False),
-                end=C.io.StreamDef('ae', shape=1, is_sparse=False)
-            )),
+                context_g_words=C.io.StreamDef(
+                    'cgw', shape=ee_model.wg_dim, is_sparse=True),
+                query_g_words=C.io.StreamDef(
+                    'qgw', shape=ee_model.wg_dim, is_sparse=True),
+                context_ng_words=C.io.StreamDef(
+                    'cnw', shape=ee_model.wn_dim, is_sparse=True),
+                query_ng_words=C.io.StreamDef(
+                    'qnw', shape=ee_model.wn_dim, is_sparse=True),
+                answer_begin=C.io.StreamDef(
+                    'ab', shape=ee_model.a_dim, is_sparse=False),
+                answer_end=C.io.StreamDef(
+                    'ae', shape=ee_model.a_dim, is_sparse=False),
+                context_chars=C.io.StreamDef(
+                    'cc', shape=ee_model.word_size, is_sparse=False),
+                query_chars=C.io.StreamDef('qc', shape=ee_model.word_size, is_sparse=False))),
         randomize=randomize,
         max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1)
+
     input_map = {
-        argument_by_name(func, 'passage'): mb_source.streams.context_words,
-        argument_by_name(func, 'question'): mb_source.streams.query_words,
-        argument_by_name(func, 'begin'): mb_source.streams.begin,
-        argument_by_name(func, 'end'): mb_source.streams.end
+        argument_by_name(func, 'passage_gw'): mb_source.streams.context_g_words,
+        argument_by_name(func, 'question_gw'): mb_source.streams.query_g_words,
+        argument_by_name(func, 'passage_nw'): mb_source.streams.context_ng_words,
+        argument_by_name(func, 'question_nw'): mb_source.streams.query_ng_words,
+        # argument_by_name(func, 'passage_c'): mb_source.streams.context_chars,
+        # argument_by_name(func, 'question_c'): mb_source.streams.query_chars,
+        argument_by_name(func, 'begin'): mb_source.streams.answer_begin,
+        argument_by_name(func, 'end'): mb_source.streams.answer_end
     }
     return mb_source, input_map
 
@@ -46,16 +59,16 @@ def train(data_path, model_path, log_path, config_file):
     mb_size = training_config['minibatch_size']
     epoch_size = training_config['epoch_size']
 
-    pickle_file = os.path.join(data_path, data_config['pickle_file'])
-    with open(pickle_file, 'rb') as vf:
-        known, vocab, chars, npglove_matrix = pickle.load(vf)
+    # pickle_file = os.path.join(data_path, data_config['pickle_file'])
+    # with open(pickle_file, 'rb') as vf:
+    #     known, vocab, chars, npglove_matrix = pickle.load(vf)
 
-    vocab_dim = len(vocab)
+
 
     cntk_writer1 = C.logging.ProgressPrinter(
         # freq=log_freq,
         # distributed_freq=100,
-        # num_epochs=max_epochs,
+        num_epochs=max_epochs,
         tag='Training',
         log_to_file=os.path.join(log_path, 'log_'),
         rank=C.Communicator.rank(),
@@ -86,7 +99,7 @@ def train(data_path, model_path, log_path, config_file):
 
     train_data_file = os.path.join(data_path, training_config['train_data'])
 
-    mb_source, input_map = create_mb_and_map(loss, train_data_file, vocab_dim)
+    mb_source, input_map = create_mb_and_map(loss, train_data_file, evidence_extraction_model)
 
     trainer = C.Trainer(model, (loss, None), learner, [cntk_writer1, cntk_writer2, tensorboard_writer])
 

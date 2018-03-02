@@ -8,17 +8,19 @@ import numpy as np
 from config import *
 
 abs_path = os.path.dirname(os.path.abspath(__file__))
-data_path=os.path.join(abs_path,'data')
-glove_file = os.path.join(data_path,data_config['glove_file'])
-vocab_map_file = os.path.join(data_path,data_config['pickle_file'])
+data_path = os.path.join(abs_path, 'data')
+glove_file = os.path.join(data_path, data_config['glove_file'])
+vocab_map_file = os.path.join(data_path, data_config['pickle_file'])
 
 word_size = data_config['word_size']
 emb_dim = data_config['emb_dim']
 word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
+is_limited_type=data_config['is_limited_type']
+limited_types=data_config['limited_types']
 
 sanitize = str.maketrans({"|": None, "\n": None})
-tsvs = 'train','dev', 'test'
+tsvs = 'train', 'dev', 'test'
 
 bos = '<BOS>'
 eos = '<EOS>'
@@ -47,7 +49,13 @@ def populate_dicts(files):
                 else:
                     uid, title, context, query, answer, raw_context, begin_answer, end_answer, raw_answer = line.split(
                         '\t')
-                tokens = context.split(' ') + query.split(' ') + answer.split(' ')
+
+                if is_limited_type:
+                    if title not in limited_types:
+                        continue
+
+                # tokens = context.split(' ') + query.split(' ') + answer.split(' ')
+                tokens = context.split(' ') + query.split(' ')
                 if 'train' in f:
                     for t in tokens:
                         wdcnt[t.lower()] += 1
@@ -96,7 +104,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     ctokens = context.split(' ')
     qtokens = query.split(' ')
     atokens = answer.split(' ')
-    mtokens=[]
+    mtokens = []
 
     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
 
@@ -106,12 +114,10 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     if not is_test:
         mtokens = ctokens[ba:ea + 1]
 
-
-
     # replace EMPTY_TOKEN with ''
     ctokens = [t if t != EMPTY_TOKEN else '' for t in ctokens]
     qtokens = [t if t != EMPTY_TOKEN else '' for t in qtokens]
-    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens] + [eos]
+    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens]
     mtokens = [t if t != EMPTY_TOKEN else '' for t in mtokens]
 
     cwids = [vocab.get(t.lower(), unk_w) for t in ctokens]
@@ -134,7 +140,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return ctokens, qtokens, atokens,mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
+    return title, ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -142,13 +148,16 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        ctokens, qtokens, atokens,mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(line,
-                                                                                                                   vocab,
-                                                                                                                   chars,
-                                                                                                                   is_test)
+        title, ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = \
+            tsv_iter(line,vocab,chars,is_test)
 
-        for ctoken, qtoken, atoken,mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
-                ctokens, qtokens, atokens, mtokens,cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx):
+        if is_limited_type:
+            if title not in limited_types:
+                continue
+
+        for ctoken, qtoken, atoken, mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
+                ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx,
+                eaidx):
             out = [str(lineno)]
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))

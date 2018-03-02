@@ -5,8 +5,8 @@ data_config = {
     'pickle_file': 'vocabs.pkl',
     'glove_file': 'glove.6B.100d.txt',
     'emb_dim': 100,
-    'is_limited_type':True,
-    'limited_types':['description']
+    'is_limited_type': True,
+    'limited_types': ['description']
 }
 
 evidence_extraction_model = {
@@ -16,8 +16,8 @@ evidence_extraction_model = {
     'hidden_dim': 150,
     'attention_dim': 300,
     'dropout': 0.1,
-    'use_cuDNN':True,
-    'use_sparse':True
+    'use_cuDNN': True,
+    'use_sparse': True
 }
 
 answer_synthesis_model = {
@@ -28,11 +28,11 @@ answer_synthesis_model = {
 }
 
 training_config = {
-    'minibatch_size': 5,  # in samples when using ctf reader, per worker8192
-    'epoch_size': 820,  # in sequences, when using ctf reader 44179
+    'minibatch_size': 4096,  # in samples when using ctf reader, per worker8192
+    'epoch_size': 44179,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 1,
-    'lr': 0.25,
+    'max_epochs': 5,
+    'lr': 0.1,
     'momentum': 0.9,
     'isrestore': False,
     'profiling': False,

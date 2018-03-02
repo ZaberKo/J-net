@@ -1,7 +1,6 @@
 import argparse
 import importlib
 import os
-import pickle
 import ujson
 
 from evidence_extraction_model import EvidenceExtractionModel
@@ -50,7 +49,7 @@ def train(data_path, model_path, log_path, config_file):
     evidence_extraction_model = EvidenceExtractionModel(config_file)
     model, loss = evidence_extraction_model.model()
     training_config = importlib.import_module(config_file).training_config
-    data_config = importlib.import_module(config_file).data_config
+    # data_config = importlib.import_module(config_file).data_config
     max_epochs = training_config['max_epochs']
     log_freq = training_config['log_freq']
     isrestore = training_config['isrestore']
@@ -112,9 +111,9 @@ def train(data_path, model_path, log_path, config_file):
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
             filename=os.path.join(model_path, model_name),
-            frequency=(epoch_size * 10, C.DataUnit.sample),
+            frequency=(epoch_size * 5, C.DataUnit.sample),
             restore=isrestore,
-            # preserve_all=True
+            preserve_all=True
         )
 
     )
@@ -282,5 +281,8 @@ if __name__ == '__main__':
         print('===============Training Start=============')
         train(data_path, model_path, log_path, config_file)
         print('===============Training Finish=============')
-    finally:
         C.Communicator.finalize()
+    except:
+        import pdb
+
+        pdb.set_trace()

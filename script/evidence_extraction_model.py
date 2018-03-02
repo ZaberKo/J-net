@@ -61,8 +61,8 @@ class EvidenceExtractionModel(object):
         with default_options(enable_self_stabilization=True):
             model = Sequential([
                 Stabilizer(),
-                Dropout(self.dropout),
-                BiGRU(self.hidden_dim, use_cudnn=self.use_cuDNN)
+                BiGRU(self.hidden_dim, use_cudnn=self.use_cuDNN),
+                Dropout(self.dropout)
             ], name=name)
         return model
 
@@ -74,7 +74,7 @@ class EvidenceExtractionModel(object):
         question_encoder = self.encoder_factory('question_encoder')
         passage_encoder = self.encoder_factory('passage_encoder')
 
-        input_chars = C.placeholder(shape=(1, self.word_size, self.char_dim))
+        # input_chars = C.placeholder(shape=(1, self.word_size, self.char_dim))
         input_glove_words = C.placeholder(shape=(self.wg_dim,))
         input_nonglove_words = C.placeholder(shape=(self.wn_dim,))
         embedded = self.embed()(input_glove_words, input_nonglove_words)
@@ -96,7 +96,7 @@ class EvidenceExtractionModel(object):
         C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
         r_Q_att_layer = MyAttentionModel(self.attention_dim,self.hidden_dim, name='r_Q_att_layer')
-
+        rnn_stab=Stabilizer()
         @C.Function
         def soft_alignment(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
             # U_Q, U_P = input_layer(question, passage).outputs
@@ -108,7 +108,11 @@ class EvidenceExtractionModel(object):
                 hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
                 return hidden
 
-            rnn = Recurrence(gru_with_attention, name='V_P_GRU')
+            rnn = Sequential([
+                Recurrence(gru_with_attention, name='V_P_GRU'),
+                rnn_stab,
+                Dropout(self.dropout)
+            ],name='soft_alignment_GRU')
 
             V_P = rnn(U_P)
             r_Q = r_Q_att_layer(U_Q)

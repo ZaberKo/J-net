@@ -3,8 +3,8 @@ data_config = {
     'word_count_threshold': 10,
     'char_count_threshold': 50,
     'pickle_file': 'vocabs.pkl',
-    'glove_file': 'glove.6B.100d.txt',
-    'emb_dim': 100,
+    'glove_file': 'glove.6B.300d.txt',
+    'emb_dim': 300,
     'is_limited_type': True,
     'limited_types': ['description']
 }
@@ -32,7 +32,7 @@ training_config = {
     'epoch_size': 44179,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
     'max_epochs': 5,
-    'lr': 0.1,
+    'lr': 0.25,
     'momentum': 0.9,
     'isrestore': False,
     'profiling': False,

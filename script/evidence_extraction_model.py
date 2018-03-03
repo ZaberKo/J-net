@@ -91,37 +91,45 @@ class EvidenceExtractionModel(object):
             'input_layer'
         )
 
-    def soft_alignment_factory(self):
-        # input_layer = self.input_layer_factory()
-        C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
+    def soft_alignment(self, U_Q, U_P):
+        U_Q_ph = C.placeholder(shape=self.hidden_dim * 2)
+        U_P_ph = C.placeholder(shape=self.hidden_dim * 2)
+
+        # C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
-        r_Q_att_layer = MyAttentionModel(self.attention_dim,self.hidden_dim, name='r_Q_att_layer')
-        rnn_stab=Stabilizer()
+        r_Q_att_layer = MyAttentionModel(self.attention_dim, self.hidden_dim, name='r_Q_att_layer')
+        rnn = Sequential([
+            BiGRU(self.hidden_dim),
+            Stabilizer(),
+            # Dropout(self.dropout)
+        ], name='soft_alignment_rnn')
+
         @C.Function
-        def soft_alignment(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
+        def soft_alignment_layer(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
             # U_Q, U_P = input_layer(question, passage).outputs
 
-            @C.Function
-            def gru_with_attention(hidden_prev, x):
-                # todo: structure changed, rewrite new att_layer
-                C_Q = C_Q_att_layer(U_Q, hidden_prev)
-                hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
-                return hidden
-
-            rnn = Sequential([
-                Recurrence(gru_with_attention, name='V_P_GRU'),
-                rnn_stab,
-                Dropout(self.dropout)
-            ],name='soft_alignment_GRU')
-
-            V_P = rnn(U_P)
+            # @C.Function
+            # def gru_with_attention(hidden_prev, x):
+            #     # todo: structure changed, rewrite new att_layer
+            #     C_Q = C_Q_att_layer(U_Q, C.splice(x,hidden_prev))
+            #     hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
+            #     return hidden
+            C_Q = C_Q_att_layer(U_Q, U_P)
+            V_P = rnn(C_Q)
             r_Q = r_Q_att_layer(U_Q)
             # r_Q = r_Q_att_layer(U_Q, C.sequence.last(V_P))
             return C.combine([V_P, r_Q])
 
-        return soft_alignment
+        return C.as_block(
+            soft_alignment_layer(U_Q_ph, U_P_ph),
+            [(U_Q_ph, U_Q), (U_P_ph, U_P)],
+            'soft_alignment',
+            'soft_alignment'
+        )
 
-    def pointer_network_factory(self):
+    def pointer_network(self, V_P, r_Q):
+        V_P_ph = C.placeholder(shape=self.hidden_dim * 2)
+        r_Q_ph = C.placeholder(shape=self.hidden_dim * 2)
 
         init = glorot_uniform()
         with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
@@ -135,7 +143,7 @@ class EvidenceExtractionModel(object):
         C_gru = GRU(self.hidden_dim * 2, enable_self_stabilization=True)
 
         @C.Function
-        def pointer_network(V_P: SequenceOver[self.passage_seq_axis], r_Q):
+        def pointer_network_layer(V_P: SequenceOver[self.passage_seq_axis], r_Q):
             encoder_hidden_state = V_P
 
             # r_Q: 'r_Q_att_layer', [#], [300]
@@ -172,20 +180,30 @@ class EvidenceExtractionModel(object):
 
             return C.combine([p1, p2])
 
-        return pointer_network
+        return C.as_block(
+            pointer_network_layer(V_P_ph, r_Q_ph),
+            [(V_P_ph, V_P), (r_Q_ph, r_Q)],
+            'pointer_network',
+            'pointer_network'
+        )
 
-    def criterion_factory(self):
-        @C.Function
-        def criterion(begin, end,
-                      begin_label, end_label):
-            # todo: reduce sum
-            loss_raw = C.plus(C.binary_cross_entropy(begin, begin_label), C.binary_cross_entropy(end, end_label))
-            # print(loss_raw)
-            loss = C.reduce_sum(loss_raw)
-            # loss=C.reshape(loss,(),0,1)
-            return loss
+    def criterion(self, begin, end, begin_label, end_label):
+        b_ph=C.placeholder()
+        e_ph=C.placeholder()
+        bl_ph=C.placeholder()
+        el_ph=C.placeholder()
+        # todo: reduce sum
+        loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
+        # print(loss_raw)
+        loss = C.reduce_sum(loss_raw, axis=0)
+        loss = C.reshape(loss, (), 0, 1)
 
-        return criterion
+        return C.as_block(
+            loss,
+            [(b_ph,begin),(e_ph,end),(bl_ph,begin_label),(el_ph,end_label)],
+            'criterion',
+            'criterion'
+        )
 
     def model(self):
         question_gw = C.sequence.input_variable(self.wg_dim, sequence_axis=self.question_seq_axis,
@@ -199,28 +217,29 @@ class EvidenceExtractionModel(object):
         begin = C.sequence.input_variable(self.a_dim, sequence_axis=self.passage_seq_axis, name='begin')
         end = C.sequence.input_variable(self.a_dim, sequence_axis=self.passage_seq_axis, name='end')
 
-        soft_alignment = self.soft_alignment_factory()
-        pointer_network = self.pointer_network_factory()
+        # soft_alignment = self.soft_alignment_factory()
 
-        #Output('input_layer', [#, questionAxis], [300]) Output('input_layer', [#, passageAxis], [300])
+
+        # Output('input_layer', [#, questionAxis], [300]) Output('input_layer', [#, passageAxis], [300])
         U_Q, U_P = self.input_layer(question_gw, question_nw, passage_gw, passage_nw).outputs
 
-        # Output('V_P_GRU', [#, passageAxis], [150]) Output('r_Q_att_layer', [#], [300])
-        V_P, r_Q = soft_alignment(U_Q, U_P).outputs
-        # print(V_P,r_Q)
+        # Output('soft_alignment', [#, passageAxis], [300]) Output('soft_alignment', [#], [300])
+        V_P, r_Q = self.soft_alignment(U_Q, U_P).outputs
+        # print(V_P, r_Q)
 
         # Output('attention_weights', [#], [* x 1])
-        p1, p2 = pointer_network(V_P, r_Q).outputs
+        model=self.pointer_network(V_P, r_Q)
+        p1, p2 = model.outputs
         # print(p1,p2)
-        criterion = self.criterion_factory()
+
         begin_label = C.sequence.unpack(begin, 0, no_mask_output=True)
         end_label = C.sequence.unpack(end, 0, no_mask_output=True)
         # print(begin_label)
         #
-        loss = criterion(p1, p2, begin_label, end_label)
+        loss = self.criterion(p1, p2, begin_label, end_label)
         # print(loss)
         #
-        return pointer_network(V_P, r_Q), loss
+        return model, loss
 
 
 # a = EvidenceExtractionModel('config')

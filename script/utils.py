@@ -61,7 +61,6 @@ def MyAttentionModel(attention_dim,hidden_dim,
         # attention_weights = [#, d] [*=e]
         attended_encoder_hidden_state = C.reduce_sum(
             attention_weights * unpacked_encoder_hidden_state, axis=0)
-        print(attended_encoder_hidden_state)
 
         # attended_encoder_hidden_state = [#, d] [1, h]
         output = attn_final_stab(C.reshape(attended_encoder_hidden_state, (), 0, 1))

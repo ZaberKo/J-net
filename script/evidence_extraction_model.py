@@ -242,7 +242,7 @@ class EvidenceExtractionModel(object):
         return model, loss
 
 
-# a = EvidenceExtractionModel('config')
-#
-# a.model()
+a = EvidenceExtractionModel('config')
+
+a.model()
 # print(a.model()[1])

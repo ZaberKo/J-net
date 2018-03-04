@@ -26,11 +26,11 @@ def create_mb_and_map(func, data_file, ee_model, randomize=True, repeat=True):
                     'ab', shape=ee_model.a_dim, is_sparse=False),
                 answer_end=C.io.StreamDef(
                     'ae', shape=ee_model.a_dim, is_sparse=False),
-                context_chars=C.io.StreamDef(
-                    'cc', shape=ee_model.word_size, is_sparse=False),
-                query_chars=C.io.StreamDef('qc', shape=ee_model.word_size, is_sparse=False))),
+            )
+        ),
         randomize=randomize,
-        max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1)
+        max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1
+    )
 
     input_map = {
         argument_by_name(func, 'passage_gw'): mb_source.streams.context_g_words,
@@ -57,7 +57,9 @@ def train(data_path, model_path, log_path, config_file):
     gen_heartbeat = training_config['gen_heartbeat']
     mb_size = training_config['minibatch_size']
     epoch_size = training_config['epoch_size']
-
+    distributed_after=training_config['distributed_after']
+    restore_all=training_config['restore_all']
+    restore_freq=training_config['restore_freq']
     # pickle_file = os.path.join(data_path, data_config['pickle_file'])
     # with open(pickle_file, 'rb') as vf:
     #     known, vocab, chars, npglove_matrix = pickle.load(vf)
@@ -90,7 +92,7 @@ def train(data_path, model_path, log_path, config_file):
     learner = C.adam(model.parameters, lr, momentum, minibatch_size=mb_size, epoch_size=epoch_size)
     # learner = C.adadelta(model.parameters, lr)
     if C.Communicator.num_workers() > 1:
-        learner = C.data_parallel_distributed_learner(learner)
+        learner = C.data_parallel_distributed_learner(learner,distributed_after)
 
     if profiling:
         C.debugging.start_profiler(sync_gpu=True)
@@ -111,9 +113,9 @@ def train(data_path, model_path, log_path, config_file):
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
             filename=os.path.join(model_path, model_name),
-            frequency=(epoch_size * 5, C.DataUnit.sample),
+            frequency=(epoch_size * restore_freq, C.DataUnit.sample),
             restore=isrestore,
-            preserve_all=True
+            preserve_all=restore_all
         )
 
     )
@@ -277,12 +279,8 @@ if __name__ == '__main__':
     is_test = args['test']
     if is_test:
         test(None, model_path, None, config_file)
-    try:
-        print('===============Training Start=============')
-        train(data_path, model_path, log_path, config_file)
-        print('===============Training Finish=============')
-        C.Communicator.finalize()
-    except:
-        import pdb
 
-        pdb.set_trace()
+    print('===============Training Start=============')
+    train(data_path, model_path, log_path, config_file)
+    print('===============Training Finish=============')
+    C.Communicator.finalize()

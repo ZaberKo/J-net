@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiGRU
+from utils import BiRNN, MyAttentionModel
 
 
 class EvidenceExtractionModel(object):
@@ -32,7 +32,7 @@ class EvidenceExtractionModel(object):
         self.dropout = model_config['dropout']
         self.use_cuDNN = model_config['use_cuDNN']
         self.use_sparse = model_config['use_sparse']
-        self.a_dim=1
+        self.a_dim = 1
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
 
@@ -61,71 +61,76 @@ class EvidenceExtractionModel(object):
         with default_options(enable_self_stabilization=True):
             model = Sequential([
                 Stabilizer(),
-                Dropout(self.dropout),
-                BiGRU(self.hidden_dim, use_cudnn=self.use_cuDNN)
+                BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN),
+                Dropout(self.dropout)
             ], name=name)
         return model
 
-    def input_layer(self, question_gw, question_nw, question_c, passage_gw, passage_nw, passage_c):
+    def input_layer(self, question_gw, question_nw, passage_gw, passage_nw):
         qgw_ph = C.placeholder()
         qnw_ph = C.placeholder()
-        qc_ph = C.placeholder()
         pgw_ph = C.placeholder()
         pnw_ph = C.placeholder()
-        pc_ph = C.placeholder()
         question_encoder = self.encoder_factory('question_encoder')
         passage_encoder = self.encoder_factory('passage_encoder')
 
-        input_chars = C.placeholder(shape=(1, self.word_size, self.char_dim))
+        # input_chars = C.placeholder(shape=(1, self.word_size, self.char_dim))
         input_glove_words = C.placeholder(shape=(self.wg_dim,))
         input_nonglove_words = C.placeholder(shape=(self.wn_dim,))
-        embedded = C.splice(
-            self.charcnn(input_chars),
-            self.embed()(input_glove_words, input_nonglove_words), name='splice_embed')
-        qce = C.one_hot(qc_ph, num_classes=self.char_dim, sparse_output=self.use_sparse)
-        pce = C.one_hot(pc_ph, num_classes=self.char_dim, sparse_output=self.use_sparse)
-        q_emb = embedded.clone(C.CloneMethod.share, {input_chars: qce, input_glove_words: qgw_ph,
-                                                     input_nonglove_words: qnw_ph})
-        p_emb = embedded.clone(C.CloneMethod.share, {input_chars: pce, input_glove_words: pgw_ph,
-                                                     input_nonglove_words: pnw_ph})
+        embedded = self.embed()(input_glove_words, input_nonglove_words)
+        q_emb = embedded.clone(C.CloneMethod.share, {input_glove_words: qgw_ph, input_nonglove_words: qnw_ph})
+        p_emb = embedded.clone(C.CloneMethod.share, {input_glove_words: pgw_ph, input_nonglove_words: pnw_ph})
 
         U_Q = question_encoder(q_emb)
         U_P = passage_encoder(p_emb)
 
         return C.as_block(
             C.combine([U_Q, U_P]),
-            [(pgw_ph, passage_gw), (pnw_ph, passage_nw), (pc_ph, passage_c), (qgw_ph, question_gw),
-             (qnw_ph, question_nw), (qc_ph, question_c)],
+            [(pgw_ph, passage_gw), (pnw_ph, passage_nw), (qgw_ph, question_gw), (qnw_ph, question_nw), ],
             'input_layer',
             'input_layer'
         )
 
-    def soft_alignment_factory(self):
-        # input_layer = self.input_layer_factory()
-        C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
+    def soft_alignment(self, U_Q, U_P):
+        U_Q_ph = C.placeholder(shape=self.hidden_dim * 2)
+        U_P_ph = C.placeholder(shape=self.hidden_dim * 2)
+
+        # C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
-        r_Q_att_layer = AttentionModel(self.attention_dim, name='r_Q_att_layer')
+        r_Q_att_layer = MyAttentionModel(self.attention_dim, self.hidden_dim, name='r_Q_att_layer')
+        rnn = Sequential([
+            BiRNN(self.hidden_dim),
+            Stabilizer(),
+            # Dropout(self.dropout)
+        ], name='soft_alignment_rnn')
 
         @C.Function
-        def soft_alignment(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
+        def soft_alignment_layer(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
             # U_Q, U_P = input_layer(question, passage).outputs
 
-            @C.Function
-            def gru_with_attention(hidden_prev, x):
-                # todo: structure changed, rewrite new att_layer
-                C_Q = C_Q_att_layer(U_Q, hidden_prev)
-                hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
-                return hidden
-
-            rnn = Recurrence(gru_with_attention, name='V_P_GRU')
-
-            V_P = rnn(U_P)
-            r_Q = r_Q_att_layer(U_Q, C.sequence.last(V_P))
+            # @C.Function
+            # def gru_with_attention(hidden_prev, x):
+            #     # todo: structure changed, rewrite new att_layer
+            #     C_Q = C_Q_att_layer(U_Q, C.splice(x,hidden_prev))
+            #     hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
+            #     return hidden
+            C_Q = C_Q_att_layer(U_Q, U_P)
+            V_P = rnn(C_Q)
+            r_Q = r_Q_att_layer(U_Q)
+            # r_Q = r_Q_att_layer(U_Q, C.sequence.last(V_P))
             return C.combine([V_P, r_Q])
 
-        return soft_alignment
+        return C.as_block(
+            soft_alignment_layer(U_Q_ph, U_P_ph),
+            [(U_Q_ph, U_Q), (U_P_ph, U_P)],
+            'soft_alignment',
+            'soft_alignment'
+        )
 
-    def pointer_network_factory(self):
+    def pointer_network(self, V_P, r_Q):
+        V_P_ph = C.placeholder(shape=self.hidden_dim * 2)
+        r_Q_ph = C.placeholder(shape=self.hidden_dim * 2)
+
         init = glorot_uniform()
         with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
             attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init,
@@ -138,7 +143,7 @@ class EvidenceExtractionModel(object):
         C_gru = GRU(self.hidden_dim * 2, enable_self_stabilization=True)
 
         @C.Function
-        def pointer_network(V_P:SequenceOver[self.passage_seq_axis], r_Q):
+        def pointer_network_layer(V_P: SequenceOver[self.passage_seq_axis], r_Q):
             encoder_hidden_state = V_P
 
             # r_Q: 'r_Q_att_layer', [#], [300]
@@ -155,8 +160,7 @@ class EvidenceExtractionModel(object):
                                                                          decoder_hidden_state)
                 broadcast_valid_mask = C.sequence.broadcast_as(C.reshape(valid_mask, (1,), 1), decoder_hidden_state)
                 projected_decoder_hidden_state = attn_proj_dec(decoder_hidden_state)
-                tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
-                attention_logits = attn_proj_tanh(tanh_output)
+                attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
                 minus_inf = C.constant(-1e+30)
                 masked_attention_logits = C.element_select(broadcast_valid_mask, attention_logits, minus_inf)
                 attention_weights = C.softmax(masked_attention_logits, axis=0)
@@ -175,56 +179,69 @@ class EvidenceExtractionModel(object):
 
             return C.combine([p1, p2])
 
-        return pointer_network
+        return C.as_block(
+            pointer_network_layer(V_P_ph, r_Q_ph),
+            [(V_P_ph, V_P), (r_Q_ph, r_Q)],
+            'pointer_network',
+            'pointer_network'
+        )
 
-    def criterion_factory(self):
-        @C.Function
-        def criterion(begin, end,
-                      begin_label, end_label):
-            #todo: reduce sum
-            loss_raw = C.plus(C.binary_cross_entropy(begin, begin_label), C.binary_cross_entropy(end, end_label))
-            # print(loss_raw)
-            loss=C.reduce_sum(loss_raw)
-            return loss
+    def criterion(self, begin, end, begin_label, end_label):
+        b_ph=C.placeholder()
+        e_ph=C.placeholder()
+        bl_ph=C.placeholder()
+        el_ph=C.placeholder()
+        # todo: reduce sum
+        loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
+        # print(loss_raw)
+        loss = C.reduce_sum(loss_raw, axis=0)
+        loss = C.reshape(loss, (), 0, 1)
 
-        return criterion
+        return C.as_block(
+            loss,
+            [(b_ph,begin),(e_ph,end),(bl_ph,begin_label),(el_ph,end_label)],
+            'criterion',
+            'criterion'
+        )
 
     def model(self):
-        question_gw = C.sequence.input_variable(self.wg_dim, sequence_axis=self.question_seq_axis, is_sparse=self.use_sparse,name='question_gw')
-        question_nw = C.sequence.input_variable(self.wn_dim, sequence_axis=self.question_seq_axis, is_sparse=self.use_sparse, name='question_nw')
-        question_c = C.sequence.input_variable((1, self.word_size), sequence_axis=self.question_seq_axis,
-                                               name='question_c')
-        passage_gw = C.sequence.input_variable(self.wg_dim, sequence_axis=self.passage_seq_axis, is_sparse=self.use_sparse, name='passage_gw')
-        passage_nw = C.sequence.input_variable(self.wn_dim, sequence_axis=self.passage_seq_axis, is_sparse=self.use_sparse, name='passage_nw')
-        passage_c = C.sequence.input_variable((1, self.word_size), sequence_axis=self.passage_seq_axis,
-                                              name='passage_c')
+        question_gw = C.sequence.input_variable(self.wg_dim, sequence_axis=self.question_seq_axis,
+                                                is_sparse=self.use_sparse, name='question_gw')
+        question_nw = C.sequence.input_variable(self.wn_dim, sequence_axis=self.question_seq_axis,
+                                                is_sparse=self.use_sparse, name='question_nw')
+        passage_gw = C.sequence.input_variable(self.wg_dim, sequence_axis=self.passage_seq_axis,
+                                               is_sparse=self.use_sparse, name='passage_gw')
+        passage_nw = C.sequence.input_variable(self.wn_dim, sequence_axis=self.passage_seq_axis,
+                                               is_sparse=self.use_sparse, name='passage_nw')
         begin = C.sequence.input_variable(self.a_dim, sequence_axis=self.passage_seq_axis, name='begin')
         end = C.sequence.input_variable(self.a_dim, sequence_axis=self.passage_seq_axis, name='end')
 
-        soft_alignment = self.soft_alignment_factory()
-        pointer_network = self.pointer_network_factory()
+        # soft_alignment = self.soft_alignment_factory()
 
 
-        U_Q, U_P = self.input_layer(question_gw, question_nw, question_c, passage_gw, passage_nw, passage_c).outputs
+        # Output('input_layer', [#, questionAxis], [300]) Output('input_layer', [#, passageAxis], [300])
+        U_Q, U_P = self.input_layer(question_gw, question_nw, passage_gw, passage_nw).outputs
 
-        # Output('V_P_GRU', [#, passageAxis], [150]) Output('r_Q_att_layer', [#], [300])
-        V_P, r_Q = soft_alignment(U_Q, U_P).outputs
+        # Output('soft_alignment', [#, passageAxis], [300]) Output('soft_alignment', [#], [300])
+        V_P, r_Q = self.soft_alignment(U_Q, U_P).outputs
+        # print(V_P, r_Q)
 
         # Output('attention_weights', [#], [* x 1])
-        p1,p2=pointer_network(V_P,r_Q).outputs
+        model=self.pointer_network(V_P, r_Q)
+        p1, p2 = model.outputs
         # print(p1,p2)
-        criterion = self.criterion_factory()
+
         begin_label = C.sequence.unpack(begin, 0, no_mask_output=True)
         end_label = C.sequence.unpack(end, 0, no_mask_output=True)
         # print(begin_label)
         #
-        loss = criterion(p1, p2, begin_label, end_label)
+        loss = self.criterion(p1, p2, begin_label, end_label)
         # print(loss)
         #
-        return pointer_network(V_P,r_Q), loss
+        return model, loss
 
 
-# a = EvidenceExtractionModel('config')
-# from pprint import pprint
-# pprint(a.model())
-# print(a.model()[1].arguments)
+a = EvidenceExtractionModel('config')
+
+a.model()
+# print(a.model()[1])

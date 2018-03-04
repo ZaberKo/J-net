@@ -1,12 +1,14 @@
 from cntk.layers import *
+from cntk.layers.blocks import _INFERRED
 from cntk.layers.blocks import _inject_name
 
 import tsv2ctf
-from cntk.layers.blocks import _INFERRED
 
-def BiGRU(hidden_dim, num_layers=1, use_cudnn=True, name=''):
+
+def BiRNN(hidden_dim, num_layers=1, recurrent_op='gru', use_cudnn=True, name=''):
     if use_cudnn:
         W = C.parameter(_INFERRED + (hidden_dim,), init=C.glorot_uniform())
+
         @C.Function
         def cuDNN_bigru(x):
             return C.optimized_rnnstack(x, W, hidden_dim, num_layers, True, recurrent_op='gru',
@@ -14,14 +16,27 @@ def BiGRU(hidden_dim, num_layers=1, use_cudnn=True, name=''):
 
         return cuDNN_bigru
     else:
+        cell = {
+            'gru': [GRU(hidden_dim), GRU(hidden_dim)],
+            'lstm': [LSTM(hidden_dim), LSTM(hidden_dim)]
+        }
+        if recurrent_op == 'gru':
+            fwd = GRU(hidden_dim)
+            bwd = GRU(hidden_dim)
+        elif recurrent_op == 'lstm':
+            fwd = LSTM(hidden_dim)
+            bwd = LSTM(hidden_dim)
+        else:
+            raise ValueError('no such recurrent_op!')
+
         return Sequential([
-            (Recurrence(GRU(hidden_dim)),
-             Recurrence(GRU(hidden_dim), go_backwards=True)),
+            (Recurrence(fwd),
+             Recurrence(bwd, go_backwards=True)),
             splice
         ], name=name)
 
 
-def MyAttentionModel(attention_dim,hidden_dim,
+def MyAttentionModel(attention_dim, hidden_dim,
                      init=default_override_or(glorot_uniform()),
                      enable_self_stabilization=default_override_or(True), name=''):
     '''
@@ -45,7 +60,8 @@ def MyAttentionModel(attention_dim,hidden_dim,
         attn_proj_tanh = Stabilizer(enable_self_stabilization=enable_self_stabilization) >> Dense(1, init=init,
                                                                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
     attn_final_stab = Stabilizer(enable_self_stabilization=enable_self_stabilization)
-    decoder_hidden_state=C.parameter(hidden_dim)
+    decoder_hidden_state = C.parameter(hidden_dim)
+
     @Function
     def new_attention(encoder_hidden_state):
         unpacked_encoder_hidden_state, valid_mask = C.sequence.unpack(encoder_hidden_state, padding_value=0).outputs
@@ -68,8 +84,6 @@ def MyAttentionModel(attention_dim,hidden_dim,
         return output
 
     return _inject_name(new_attention, name)
-
-
 
 
 # map from token to char offset

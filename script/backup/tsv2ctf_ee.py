@@ -104,7 +104,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     ctokens = context.split(' ')
     qtokens = query.split(' ')
     atokens = answer.split(' ')
-
+    mtokens = []
 
     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
 
@@ -118,13 +118,16 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     ctokens = [t if t != EMPTY_TOKEN else '' for t in ctokens]
     qtokens = [t if t != EMPTY_TOKEN else '' for t in qtokens]
     atokens = [t if t != EMPTY_TOKEN else '' for t in atokens]
+    mtokens = [t if t != EMPTY_TOKEN else '' for t in mtokens]
 
     cwids = [vocab.get(t.lower(), unk_w) for t in ctokens]
     qwids = [vocab.get(t.lower(), unk_w) for t in qtokens]
     awids = [vocab.get(t.lower(), unk_w) for t in atokens]
-    # ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
-    # qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
-    # acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
+    mwids = [vocab.get(t.lower(), unk_w) for t in mtokens]
+    ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
+    qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
+    acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
+    mcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in mtokens]
 
     baidx = [0 if i != ba else 1 for i, t in enumerate(ctokens)]
     eaidx = [0 if i != ea else 1 for i, t in enumerate(ctokens)]
@@ -137,7 +140,7 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return title, ctokens, qtokens, atokens,  cwids, qwids, awids,  baidx, eaidx
+    return title, ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -145,15 +148,16 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx = \
+        title, ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = \
             tsv_iter(line,vocab,chars,is_test)
 
         if is_limited_type:
             if title not in limited_types:
                 continue
 
-        for ctoken, qtoken, atoken,  cwid, qwid, awid,  begin, end in zip_longest(
-                ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx):
+        for ctoken, qtoken, atoken, mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
+                ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx,
+                eaidx):
             out = [str(lineno)]
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
@@ -184,6 +188,25 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 else:
                     out.append('|agw {}:{}'.format(awid, 1))
                     out.append('|anw {}:{}'.format(0, 0))
+            # if mwid is not None:
+            #     if mwid >= known:
+            #         out.append('|mgw {}:{}'.format(0, 0))
+            #         out.append('|mnw {}:{}'.format(mwid - known, 1))
+            #     else:
+            #         out.append('|mgw {}:{}'.format(mwid, 1))
+            #         out.append('|mnw {}:{}'.format(0, 0))
+            if ccid is not None:
+                outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
+                out.append('|cc %s' % outc)
+            if qcid is not None:
+                outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
+                out.append('|qc %s' % outq)
+            if acid is not None:
+                outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
+                out.append('|ac %s' % outa)
+            # if mcid is not None:
+            #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
+            #     out.append('|mc %s' % outm)
             if begin is not None:
                 out.append('|ab %3d' % begin)
             if end is not None:

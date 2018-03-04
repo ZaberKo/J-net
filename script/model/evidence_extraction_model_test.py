@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiGRU
+from utils import BiRNN
 
 
 class EvidenceExtractionModel(object):
@@ -40,7 +40,7 @@ class EvidenceExtractionModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiGRU(self.hidden_dim,use_cudnn=self.use_cuDNN)
+                BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN)
             ], name='question_encoder')
         return model
 
@@ -50,7 +50,7 @@ class EvidenceExtractionModel(object):
                 self.emb_layer,
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiGRU(self.hidden_dim, use_cudnn=self.use_cuDNN)
+                BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN)
             ], name='question_encoder')
         return model
 

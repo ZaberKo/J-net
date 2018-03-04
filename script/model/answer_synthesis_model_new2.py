@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiGRU
+from utils import BiRNN
 
 
 class AnswerSynthesisModel(object):
@@ -54,7 +54,7 @@ class AnswerSynthesisModel(object):
 
     def encoder_factory(self, name=None):
         with default_options(initial_state=0.1):
-            model = BiGRU(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim), name=name)
+            model = BiRNN(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim), name=name)
         return model
 
     def model_factory(self):

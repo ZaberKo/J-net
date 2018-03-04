@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiGRU
+from utils import BiRNN
 
 
 class AnswerSynthesisModel(object):
@@ -41,7 +41,7 @@ class AnswerSynthesisModel(object):
                 Embedding(self.emb_dim, init=self.npglove_matrix),
                 Stabilizer(),
                 # ht = BiGRU(ht−1, etq)
-                BiGRU(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim)),
+                BiRNN(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim)),
             ], name='question_encoder')
         return model
 
@@ -51,7 +51,7 @@ class AnswerSynthesisModel(object):
                 Embedding(self.emb_dim, init=self.npglove_matrix),
                 Stabilizer(),
                 # ht = BiGRU(ht−1, [etp, fts, fte])
-                BiGRU(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
+                BiRNN(GRU(shape=self.hidden_dim), GRU(shape=self.hidden_dim))
             ], name='passage_encoder')
         return model
 

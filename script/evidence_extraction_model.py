@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiGRU, MyAttentionModel
+from utils import BiRNN
 
 
 class EvidenceExtractionModel(object):
@@ -61,7 +61,7 @@ class EvidenceExtractionModel(object):
         with default_options(enable_self_stabilization=True):
             model = Sequential([
                 Stabilizer(),
-                BiGRU(self.hidden_dim, use_cudnn=self.use_cuDNN),
+                BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN),
                 Dropout(self.dropout)
             ], name=name)
         return model
@@ -97,34 +97,63 @@ class EvidenceExtractionModel(object):
 
         # C_Q_gru = GRU(self.hidden_dim, enable_self_stabilization=True)
         C_Q_att_layer = AttentionModel(self.attention_dim, name='C_Q_att_layer')
-        r_Q_att_layer = MyAttentionModel(self.attention_dim, self.hidden_dim, name='r_Q_att_layer')
         rnn = Sequential([
-            BiGRU(self.hidden_dim),
+            BiRNN(self.hidden_dim),
             Stabilizer(),
             # Dropout(self.dropout)
         ], name='soft_alignment_rnn')
+        gate_layer = Dense(self.hidden_dim * 4, activation=sigmoid, bias=False, name='att_gate')
 
         @C.Function
         def soft_alignment_layer(U_Q: SequenceOver[self.question_seq_axis], U_P: SequenceOver[self.passage_seq_axis]):
-            # U_Q, U_P = input_layer(question, passage).outputs
-
-            # @C.Function
-            # def gru_with_attention(hidden_prev, x):
-            #     # todo: structure changed, rewrite new att_layer
-            #     C_Q = C_Q_att_layer(U_Q, C.splice(x,hidden_prev))
-            #     hidden = C_Q_gru(hidden_prev, C.splice(C_Q, x))
-            #     return hidden
             C_Q = C_Q_att_layer(U_Q, U_P)
-            V_P = rnn(C_Q)
-            r_Q = r_Q_att_layer(U_Q)
+            att_mod = C.splice(U_P, C_Q)
+            processed_attention = C.element_times(gate_layer(att_mod), att_mod)
+            V_P = rnn(processed_attention)
+
             # r_Q = r_Q_att_layer(U_Q, C.sequence.last(V_P))
-            return C.combine([V_P, r_Q])
+            return V_P
+
+        V_P = soft_alignment_layer(U_Q_ph, U_P_ph)
 
         return C.as_block(
-            soft_alignment_layer(U_Q_ph, U_P_ph),
+            V_P,
             [(U_Q_ph, U_Q), (U_P_ph, U_P)],
             'soft_alignment',
             'soft_alignment'
+        )
+
+    def poniter_init_attention(self, encoder_hidden_states):
+        encoder_h_ph = C.placeholder(self.hidden_dim * 2)
+        init = glorot_uniform()
+        with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
+            attn_proj_enc = Stabilizer() >> Dense(self.attention_dim,
+                                                  init=init,
+                                                  input_rank=1)  # projects input hidden state, keeping span axes intact
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init,
+                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
+            attn_final_stab = Stabilizer()
+        decoder_hidden_state = C.parameter(self.attention_dim)
+
+        @C.Function
+        def attention_layer(encoder_hidden_state):
+            projected_encoder_hidden_state = attn_proj_enc(encoder_hidden_state)
+            projected_decoder_hidden_state = C.sequence.broadcast_as(decoder_hidden_state,
+                                                                     encoder_hidden_state)
+            attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+            attention_weights = C.sequence.softmax(attention_logits)
+            # attention_weights = Label('attention_weights')(attention_weights)
+            attended_encoder_hidden_state = C.sequence.reduce_sum(
+                C.element_times(attention_weights, encoder_hidden_state)
+            )
+            output = attn_final_stab(attended_encoder_hidden_state)
+            return output
+
+        return C.as_block(
+            attention_layer(encoder_h_ph),
+            [(encoder_h_ph, encoder_hidden_states)],
+            'poniter_init_attention',
+            'poniter_init_attention'
         )
 
     def pointer_network(self, V_P, r_Q):
@@ -137,9 +166,9 @@ class EvidenceExtractionModel(object):
                                                   input_rank=1)  # projects input hidden state, keeping span axes intact
             attn_proj_dec = Stabilizer() >> Dense(self.attention_dim, init=init,
                                                   input_rank=1)  # projects decoder hidden state, but keeping span and beam-search axes intact
-        attn_proj_tanh = Stabilizer() >> Dense(1, init=init, bias=True, activation=C.tanh,
-                                               input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
-        attn_final_stab = Stabilizer(enable_self_stabilization=True)
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, activation=C.tanh,
+                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
+            attn_final_stab = Stabilizer()
         C_gru = GRU(self.hidden_dim * 2, enable_self_stabilization=True)
 
         @C.Function
@@ -147,36 +176,56 @@ class EvidenceExtractionModel(object):
             encoder_hidden_state = V_P
 
             # r_Q: 'r_Q_att_layer', [#], [300]
-            @C.Function
+            #
+            # def H_A_gru_cell(hidden_prev):
+            #     decoder_hidden_state = hidden_prev
+            #
+            #     # copy from cntk source code
+            #     # ============================
+            #     unpacked_encoder_hidden_state, valid_mask = C.sequence.unpack(encoder_hidden_state,
+            #                                                                   padding_value=0).outputs
+            #
+            #     projected_encoder_hidden_state = C.sequence.broadcast_as(attn_proj_enc(unpacked_encoder_hidden_state),
+            #                                                              decoder_hidden_state)
+            #     broadcast_valid_mask = C.sequence.broadcast_as(C.reshape(valid_mask, (1,), 1), decoder_hidden_state)
+            #     projected_decoder_hidden_state = attn_proj_dec(decoder_hidden_state)
+            #     tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+            #     attention_logits = attn_proj_tanh(tanh_output)
+            #     minus_inf = C.constant(-1e+30)
+            #     masked_attention_logits = C.element_select(broadcast_valid_mask, attention_logits, minus_inf)
+            #     attention_weights = C.softmax(masked_attention_logits, axis=0)
+            #     attention_weights = Label('attention_weights')(attention_weights)
+            #     attended_encoder_hidden_state = C.reduce_sum(
+            #         attention_weights * C.sequence.broadcast_as(unpacked_encoder_hidden_state, attention_weights),
+            #         axis=0)
+            #     output = attn_final_stab(C.reshape(attended_encoder_hidden_state, (), 0, 1))
+            #     # ============================
+            #     c = output
+            #     hidden = C_gru(hidden_prev, c)
+            #     return (attention_weights, hidden)
             def H_A_gru_cell(hidden_prev):
                 decoder_hidden_state = hidden_prev
 
-                # copy from cntk source code
+                # attention layer
                 # ============================
-                unpacked_encoder_hidden_state, valid_mask = C.sequence.unpack(encoder_hidden_state,
-                                                                              padding_value=0).outputs
-
-                projected_encoder_hidden_state = C.sequence.broadcast_as(attn_proj_enc(unpacked_encoder_hidden_state),
-                                                                         decoder_hidden_state)
-                broadcast_valid_mask = C.sequence.broadcast_as(C.reshape(valid_mask, (1,), 1), decoder_hidden_state)
-                projected_decoder_hidden_state = attn_proj_dec(decoder_hidden_state)
-                tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
-                attention_logits = attn_proj_tanh(tanh_output)
-                minus_inf = C.constant(-1e+30)
-                masked_attention_logits = C.element_select(broadcast_valid_mask, attention_logits, minus_inf)
-                attention_weights = C.softmax(masked_attention_logits, axis=0)
-                attention_weights = Label('attention_weights')(attention_weights)
-                attended_encoder_hidden_state = C.reduce_sum(
-                    attention_weights * C.sequence.broadcast_as(unpacked_encoder_hidden_state, attention_weights),
-                    axis=0)
-                output = attn_final_stab(C.reshape(attended_encoder_hidden_state, (), 0, 1))
+                projected_encoder_hidden_state = attn_proj_enc(encoder_hidden_state)
+                projected_decoder_hidden_state = C.sequence.broadcast_as(attn_proj_dec(decoder_hidden_state),
+                                                                         encoder_hidden_state)
+                attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+                attention_weights = C.sequence.softmax(attention_logits)
+                # attention_weights = Label('attention_weights')(attention_weights)
+                attended_encoder_hidden_state = C.sequence.reduce_sum(
+                    C.element_times(attention_weights, encoder_hidden_state)
+                )
+                output = attn_final_stab(attended_encoder_hidden_state)
                 # ============================
                 c = output
                 hidden = C_gru(hidden_prev, c)
-                return C.combine([attention_weights, hidden])
+                return (attention_weights, hidden)
 
-            p1, h1 = H_A_gru_cell(r_Q).outputs
-            p2, h2 = H_A_gru_cell(h1).outputs
+            # h1:[300]
+            p1, h1 = H_A_gru_cell(r_Q)
+            p2, h2 = H_A_gru_cell(h1)
 
             return C.combine([p1, p2])
 
@@ -188,19 +237,18 @@ class EvidenceExtractionModel(object):
         )
 
     def criterion(self, begin, end, begin_label, end_label):
-        b_ph=C.placeholder()
-        e_ph=C.placeholder()
-        bl_ph=C.placeholder()
-        el_ph=C.placeholder()
+        b_ph = C.placeholder()
+        e_ph = C.placeholder()
+        bl_ph = C.placeholder()
+        el_ph = C.placeholder()
         # todo: reduce sum
         loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
         # print(loss_raw)
-        loss = C.reduce_sum(loss_raw, axis=0)
-        loss = C.reshape(loss, (), 0, 1)
+        loss = C.sequence.reduce_sum(loss_raw)
 
         return C.as_block(
             loss,
-            [(b_ph,begin),(e_ph,end),(bl_ph,begin_label),(el_ph,end_label)],
+            [(b_ph, begin), (e_ph, end), (bl_ph, begin_label), (el_ph, end_label)],
             'criterion',
             'criterion'
         )
@@ -220,25 +268,26 @@ class EvidenceExtractionModel(object):
         # soft_alignment = self.soft_alignment_factory()
 
 
-        # Output('input_layer', [#, questionAxis], [300]) Output('input_layer', [#, passageAxis], [300])
+        # Output('input_layer', [#, questionAxis], [300])
+        # Output('input_layer', [#, passageAxis], [300])
         U_Q, U_P = self.input_layer(question_gw, question_nw, passage_gw, passage_nw).outputs
 
-        # Output('soft_alignment', [#, passageAxis], [300]) Output('soft_alignment', [#], [300])
-        V_P, r_Q = self.soft_alignment(U_Q, U_P).outputs
-        # print(V_P, r_Q)
+        # ('soft_alignment', [#, passageAxis], [300])
+        V_P = self.soft_alignment(U_Q, U_P)
+        # print(V_P.output)
 
-        # Output('attention_weights', [#], [* x 1])
-        model=self.pointer_network(V_P, r_Q)
+        # ('poniter_init_attention', [#], [300])
+        r_Q = self.poniter_init_attention(U_Q)
+
+        # print(r_Q.output)
+        model = self.pointer_network(V_P, r_Q)
+        # Output('pointer_network', [#, passageAxis], [1])
+        # Output('pointer_network', [#, passageAxis], [1])
         p1, p2 = model.outputs
-        # print(p1,p2)
+        # print(p1, p2)
 
-        begin_label = C.sequence.unpack(begin, 0, no_mask_output=True)
-        end_label = C.sequence.unpack(end, 0, no_mask_output=True)
-        # print(begin_label)
-        #
-        loss = self.criterion(p1, p2, begin_label, end_label)
+        loss = self.criterion(p1, p2, begin, end)
         # print(loss)
-        #
         return model, loss
 
 

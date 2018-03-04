@@ -4,19 +4,19 @@ data_config = {
     'char_count_threshold': 50,
     'pickle_file': 'vocabs.pkl',
     'glove_file': 'glove.6B.300d.txt',
-    'emb_dim': 300,
+    'emb_dim': 300,  # mast correspond to evidence_extraction_model['word_emb_dim']
     'is_limited_type': True,
     'limited_types': ['description']
 }
 
 evidence_extraction_model = {
     'word_emb_dim': 300,
-    'char_convs': 100,
-    'char_emb_dim': 8,
-    'hidden_dim': 200,
-    'attention_dim': 300,
+    # 'char_convs': 100,
+    # 'char_emb_dim': 8,
+    'hidden_dim': 150,
+    'attention_dim': 200,
     'dropout': 0.2,
-    'use_cuDNN': True,
+    'use_cuDNN': True,  # GPU required
     'use_sparse': True
 }
 
@@ -32,7 +32,7 @@ training_config = {
     'epoch_size': 44179,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
     'max_epochs': 5,
-    'lr': 0.2,
+    'lr': 0.25,
     'momentum': 0.5,
     'isrestore': False,
     'profiling': False,
@@ -40,7 +40,7 @@ training_config = {
     'train_data': 'train.ctf',  # or 'train.tsv'
     'val_data': 'dev.ctf',
     'restore_all': True,
-    'restore_freq':5,
+    'restore_freq': 5,
     'val_interval': 1,  # interval in epochs to run validation
     'stop_after': 2,  # num epochs to stop if no CV improvement
     'distributed_after': 0,  # num sequences after which to start distributed training

@@ -28,11 +28,11 @@ answer_synthesis_model = {
 }
 
 training_config = {
-    'minibatch_size': 4096,  # in samples when using ctf reader, per worker8192
+    'minibatch_size': 128,  # in samples when using ctf reader, per worker8192
     'epoch_size': 44179,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
     'max_epochs': 5,
-    'lr': 0.25,
+    'lr': 0.02,
     'momentum': 0.5,
     'isrestore': False,
     'profiling': False,
@@ -40,7 +40,7 @@ training_config = {
     'train_data': 'train.ctf',  # or 'train.tsv'
     'val_data': 'dev.ctf',
     'restore_all': True,
-    'restore_freq': 5,
+    'restore_freq': 1,
     'val_interval': 1,  # interval in epochs to run validation
     'stop_after': 2,  # num epochs to stop if no CV improvement
     'distributed_after': 0,  # num sequences after which to start distributed training

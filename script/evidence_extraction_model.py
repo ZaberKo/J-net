@@ -25,8 +25,6 @@ class EvidenceExtractionModel(object):
         self.char_dim = len(chars)
         self.word_size = data_config['word_size']
         self.word_emb_dim = model_config['word_emb_dim']
-        self.char_emb_dim = model_config['char_emb_dim']
-        self.char_convs = model_config['char_convs']
         self.hidden_dim = model_config['hidden_dim']
         self.attention_dim = model_config['attention_dim']
         self.dropout = model_config['dropout']
@@ -36,14 +34,14 @@ class EvidenceExtractionModel(object):
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
 
-    def charcnn(self, x):
-        conv_out = C.layers.Sequential([
-            C.layers.Embedding(self.char_emb_dim),
-            C.layers.Dropout(self.dropout),
-            C.layers.Convolution2D((5, self.char_emb_dim), self.char_convs, activation=C.relu, init=C.glorot_uniform(),
-                                   bias=True, init_bias=0, name='charcnn_conv')])(x)
-        return C.reshape(C.reduce_max(conv_out, axis=1),
-                         self.char_convs)  # workaround cudnn failure in GlobalMaxPooling
+    # def charcnn(self, x):
+    #     conv_out = C.layers.Sequential([
+    #         C.layers.Embedding(self.char_emb_dim),
+    #         C.layers.Dropout(self.dropout),
+    #         C.layers.Convolution2D((5, self.char_emb_dim), self.char_convs, activation=C.relu, init=C.glorot_uniform(),
+    #                                bias=True, init_bias=0, name='charcnn_conv')])(x)
+    #     return C.reshape(C.reduce_max(conv_out, axis=1),
+    #                      self.char_convs)  # workaround cudnn failure in GlobalMaxPooling
 
     def embed(self):
         # load glove
@@ -175,34 +173,6 @@ class EvidenceExtractionModel(object):
         def pointer_network_layer(V_P: SequenceOver[self.passage_seq_axis], r_Q):
             encoder_hidden_state = V_P
 
-            # r_Q: 'r_Q_att_layer', [#], [300]
-            #
-            # def H_A_gru_cell(hidden_prev):
-            #     decoder_hidden_state = hidden_prev
-            #
-            #     # copy from cntk source code
-            #     # ============================
-            #     unpacked_encoder_hidden_state, valid_mask = C.sequence.unpack(encoder_hidden_state,
-            #                                                                   padding_value=0).outputs
-            #
-            #     projected_encoder_hidden_state = C.sequence.broadcast_as(attn_proj_enc(unpacked_encoder_hidden_state),
-            #                                                              decoder_hidden_state)
-            #     broadcast_valid_mask = C.sequence.broadcast_as(C.reshape(valid_mask, (1,), 1), decoder_hidden_state)
-            #     projected_decoder_hidden_state = attn_proj_dec(decoder_hidden_state)
-            #     tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
-            #     attention_logits = attn_proj_tanh(tanh_output)
-            #     minus_inf = C.constant(-1e+30)
-            #     masked_attention_logits = C.element_select(broadcast_valid_mask, attention_logits, minus_inf)
-            #     attention_weights = C.softmax(masked_attention_logits, axis=0)
-            #     attention_weights = Label('attention_weights')(attention_weights)
-            #     attended_encoder_hidden_state = C.reduce_sum(
-            #         attention_weights * C.sequence.broadcast_as(unpacked_encoder_hidden_state, attention_weights),
-            #         axis=0)
-            #     output = attn_final_stab(C.reshape(attended_encoder_hidden_state, (), 0, 1))
-            #     # ============================
-            #     c = output
-            #     hidden = C_gru(hidden_prev, c)
-            #     return (attention_weights, hidden)
             def H_A_gru_cell(hidden_prev):
                 decoder_hidden_state = hidden_prev
 
@@ -291,7 +261,7 @@ class EvidenceExtractionModel(object):
         return model, loss
 
 
-a = EvidenceExtractionModel('config')
-
-a.model()
+# a = EvidenceExtractionModel('config')
+#
+# a.model()
 # print(a.model()[1])

@@ -130,10 +130,10 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
 
     if not is_test and sum(eaidx) == 0:
         raise ValueError('problem with input line:\n%s' % line)
-
-    misc['answer'] += [answer]
-    misc['rawctx'] += [context]
-    misc['ctoken'] += [ctokens]
+    if misc.keys():
+        misc['answer'] += [answer]
+        misc['rawctx'] += [context]
+        misc['ctoken'] += [ctokens]
 
     return title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx
 

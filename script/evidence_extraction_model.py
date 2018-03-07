@@ -212,20 +212,23 @@ class EvidenceExtractionModel(object):
         # loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
         # # # print(loss_raw)
         # loss = C.sequence.reduce_sum(loss_raw)
-
+        one = C.constant(1)
         @C.Function
         def my_cross_entropy(output, target):
-            one = C.constant(1)
+
             result = C.negate(
                 C.plus(
-                    C.plus(target, C.log(output)),
-                    C.plus(one - target, C.log(one - output))
+                    C.times(target, C.log(output)),
+                    C.times(one - target, C.log(one - output))
                 )
             )
             return result
 
-        loss = C.plus(my_cross_entropy(b_ph, bl_ph), my_cross_entropy(e_ph, el_ph))
-
+        loss_raw = C.plus(my_cross_entropy(b_ph, bl_ph), my_cross_entropy(e_ph, el_ph),name='loss_raw')
+        # length= C.sequence.reduce_sum(C.sequence.broadcast_as(one,loss_raw),name='length')
+        # loss_sum = C.sequence.reduce_sum(loss_raw)
+        # loss=C.element_divide(loss_sum,length)
+        loss=C.sequence.reduce_sum(loss_raw)
         return C.as_block(
             loss,
             [(b_ph, begin), (e_ph, end), (bl_ph, begin_label), (el_ph, end_label)],
@@ -274,12 +277,11 @@ class EvidenceExtractionModel(object):
         # print(p1, p2)
 
         loss = self.criterion(p1, p2, begin, end)
-
         return model, loss
 
-# a = EvidenceExtractionModel('config')
-#
-# model, loss = a.model()
+a = EvidenceExtractionModel('config')
+
+model, loss = a.model()
 # print(loss)
 # root=loss
 # begin_label = argument_by_name(root, 'begin')

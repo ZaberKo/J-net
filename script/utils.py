@@ -59,8 +59,9 @@ def all_spans_loss(start_logits, start_y, end_logits, end_y):
 def seq_hardmax(logits):
     seq_max = C.layers.Fold(C.element_max, initial_state=C.constant(-1e+30, logits.shape))(logits)
     s = C.equal(logits, C.sequence.broadcast_as(seq_max, logits))
-    s_acc = C.layers.Recurrence(C.plus)(s)
-    return s * C.equal(s_acc, 1) # only pick the first one
+    # s_acc = C.layers.Recurrence(C.plus)(s)
+    # result=s * C.equal(s_acc, 1) # only pick the first one
+    return s
 
 # map from token to char offset
 def w2c_map(s, words):

@@ -16,8 +16,8 @@ word_size = data_config['word_size']
 emb_dim = data_config['emb_dim']
 word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
-is_limited_type=data_config['is_limited_type']
-limited_types=data_config['limited_types']
+is_limited_type = data_config['is_limited_type']
+limited_types = data_config['limited_types']
 
 sanitize = str.maketrans({"|": None, "\n": None})
 tsvs = 'train', 'dev', 'test'
@@ -50,9 +50,9 @@ def populate_dicts(files):
                     uid, title, context, query, answer, raw_context, begin_answer, end_answer, raw_answer = line.split(
                         '\t')
 
-                if is_limited_type:
-                    if title not in limited_types:
-                        continue
+                # if is_limited_type:
+                #     if title not in limited_types:
+                #         continue
 
                 # tokens = context.split(' ') + query.split(' ') + answer.split(' ')
                 tokens = context.split(' ') + query.split(' ')
@@ -105,7 +105,6 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     qtokens = query.split(' ')
     atokens = answer.split(' ')
 
-
     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
 
     if ba > ea:
@@ -132,12 +131,11 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     if not is_test and sum(eaidx) == 0:
         raise ValueError('problem with input line:\n%s' % line)
 
-    if (not is_test) and misc.keys():
-        misc['answer'] += [answer]
-        misc['rawctx'] += [context]
-        misc['ctoken'] += [ctokens]
+    misc['answer'] += [answer]
+    misc['rawctx'] += [context]
+    misc['ctoken'] += [ctokens]
 
-    return title, ctokens, qtokens, atokens,  cwids, qwids, awids,  baidx, eaidx
+    return title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -146,23 +144,18 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
         title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx = \
-            tsv_iter(line,vocab,chars,is_test)
+            tsv_iter(line, vocab, chars, is_test)
 
         if is_limited_type:
             if title not in limited_types:
                 continue
 
-        for ctoken, qtoken, atoken,  cwid, qwid, awid,  begin, end in zip_longest(
+        for ctoken, qtoken, atoken, cwid, qwid, awid, begin, end in zip_longest(
                 ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx):
             out = [str(lineno)]
+
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
-            # if mtoken is not None:
-            #     out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
-            if qtoken is not None:
-                out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
-            if atoken is not None:
-                out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
             if cwid is not None:
                 if cwid >= known:
                     out.append('|cgw {}:{}'.format(0, 0))
@@ -170,6 +163,8 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 else:
                     out.append('|cgw {}:{}'.format(cwid, 1))
                     out.append('|cnw {}:{}'.format(0, 0))
+            if qtoken is not None:
+                out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
             if qwid is not None:
                 if qwid >= known:
                     out.append('|qgw {}:{}'.format(0, 0))
@@ -177,6 +172,8 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
                 else:
                     out.append('|qgw {}:{}'.format(qwid, 1))
                     out.append('|qnw {}:{}'.format(0, 0))
+            if atoken is not None:
+                out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
             if awid is not None:
                 if awid >= known:
                     out.append('|agw {}:{}'.format(0, 0))

@@ -2,8 +2,6 @@ import importlib
 import os
 import pickle
 
-from cntk.layers import *
-
 from utils import *
 
 
@@ -18,8 +16,8 @@ class EvidenceExtractionModel(object):
         with open(pickle_file, 'rb') as vf:
             known, vocab, chars, known_npglove_matrix = pickle.load(vf)
 
-        self.vocab=vocab
-        self.chars=chars
+        self.vocab = vocab
+        self.chars = chars
         self.known_npglove_matrix = known_npglove_matrix
         # self.vocab_dim = len(vocab)
         self.wg_dim = known
@@ -33,7 +31,6 @@ class EvidenceExtractionModel(object):
         self.dropout = model_config['dropout']
         self.use_cuDNN = model_config['use_cuDNN']
         self.use_sparse = model_config['use_sparse']
-        self.use_harmax=model_config['use_harmax']
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
 
@@ -46,50 +43,56 @@ class EvidenceExtractionModel(object):
     #     return C.reshape(C.reduce_max(conv_out, axis=1),
     #                      self.char_convs)  # workaround cudnn failure in GlobalMaxPooling
 
-    def embed(self):
+    def embed_layer(self, question_gw, question_nw, passage_gw, passage_nw):
+        qgw_ph = C.placeholder()
+        qnw_ph = C.placeholder()
+        pgw_ph = C.placeholder()
+        pnw_ph = C.placeholder()
+
         # load glove
         glove = C.constant(self.known_npglove_matrix, name='Untrainable_Glove')
         nonglove = C.parameter(shape=(self.wn_dim, self.word_emb_dim), init=C.glorot_uniform(),
                                name='Trainable_Glove')
 
         @C.Function
-        def func(wg, wn):
+        def word_emb(wg, wn):
             return C.times(wg, glove) + C.times(wn, nonglove)
 
-        return func
+        e_Q = word_emb(qgw_ph, qnw_ph)
+        e_P = word_emb(pgw_ph, pnw_ph)
 
-    def encoder_factory(self, name=''):
-        with default_options(enable_self_stabilization=True):
-            model = Sequential([
-                Stabilizer(),
-                BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN),
-                Dropout(self.dropout)
-            ], name=name)
-        return model
+        return C.as_block(
+            C.combine([e_Q, e_P]),
+            [(pgw_ph, passage_gw), (pnw_ph, passage_nw), (qgw_ph, question_gw), (qnw_ph, question_nw)],
+            'embed_layer',
+            'embed_layer'
+        )
 
-    def input_layer(self, question_gw, question_nw, passage_gw, passage_nw):
-        qgw_ph = C.placeholder()
-        qnw_ph = C.placeholder()
-        pgw_ph = C.placeholder()
-        pnw_ph = C.placeholder()
-        question_encoder = self.encoder_factory('question_encoder')
-        passage_encoder = self.encoder_factory('passage_encoder')
+    def encoder_layer(self, e_Q, e_P):
+        e_Q_ph = C.placeholder()
+        e_P_ph = C.placeholder()
 
-        # input_chars = C.placeholder(shape=(1, self.word_size, self.char_dim))
-        input_glove_words = C.placeholder(shape=(self.wg_dim,))
-        input_nonglove_words = C.placeholder(shape=(self.wn_dim,))
-        embedded = self.embed()(input_glove_words, input_nonglove_words)
-        q_emb = embedded.clone(C.CloneMethod.share, {input_glove_words: qgw_ph, input_nonglove_words: qnw_ph})
-        p_emb = embedded.clone(C.CloneMethod.share, {input_glove_words: pgw_ph, input_nonglove_words: pnw_ph})
+        def encoder_factory(name=''):
+            with default_options(enable_self_stabilization=True):
+                model = Sequential([
+                    Stabilizer(),
+                    BiRNN(self.hidden_dim, use_cudnn=self.use_cuDNN),
+                    Dropout(self.dropout)
+                ], name=name)
 
-        U_Q = question_encoder(q_emb)
-        U_P = passage_encoder(p_emb)
+            return model
+
+        question_encoder = encoder_factory('question_encoder')
+        passage_encoder = encoder_factory('passage_encoder')
+
+        U_Q = question_encoder(e_Q_ph)
+        U_P = passage_encoder(e_P_ph)
 
         return C.as_block(
             C.combine([U_Q, U_P]),
-            [(pgw_ph, passage_gw), (pnw_ph, passage_nw), (qgw_ph, question_gw), (qnw_ph, question_nw), ],
-            'input_layer',
-            'input_layer'
+            [(e_Q_ph, e_Q), (e_P_ph, e_P)],
+            'encoder_layer',
+            'encoder_layer'
         )
 
     def soft_alignment(self, U_Q, U_P):
@@ -101,7 +104,7 @@ class EvidenceExtractionModel(object):
         rnn = Sequential([
             BiRNN(self.hidden_dim),
             Stabilizer(),
-            # Dropout(self.dropout)
+            Dropout(self.dropout)
         ], name='soft_alignment_rnn')
         gate_layer = Dense(self.hidden_dim * 4, activation=sigmoid, bias=False, name='att_gate')
 
@@ -127,23 +130,18 @@ class EvidenceExtractionModel(object):
     def poniter_init_attention(self, encoder_hidden_states):
         encoder_h_ph = C.placeholder(self.hidden_dim * 2)
         init = glorot_uniform()
-        with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
-            attn_proj_enc = Stabilizer() >> Dense(self.attention_dim,
-                                                  init=init,
-                                                  input_rank=1)  # projects input hidden state, keeping span axes intact
-            attn_proj_tanh = Stabilizer() >> Dense(1, init=init,
-                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
+        with default_options(bias=False, enable_self_stabilization=True):
+            attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, input_rank=1, activation=tanh)
             attn_final_stab = Stabilizer()
         decoder_hidden_state = C.parameter(self.attention_dim)
 
         @C.Function
         def attention_layer(encoder_hidden_state):
             projected_encoder_hidden_state = attn_proj_enc(encoder_hidden_state)
-            projected_decoder_hidden_state = C.sequence.broadcast_as(decoder_hidden_state,
-                                                                     encoder_hidden_state)
+            projected_decoder_hidden_state = C.sequence.broadcast_as(decoder_hidden_state, encoder_hidden_state)
             attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
             attention_weights = C.sequence.softmax(attention_logits)
-            # attention_weights = Label('attention_weights')(attention_weights)
             attended_encoder_hidden_state = C.sequence.reduce_sum(
                 C.element_times(attention_weights, encoder_hidden_state)
             )
@@ -162,13 +160,10 @@ class EvidenceExtractionModel(object):
         r_Q_ph = C.placeholder(shape=self.hidden_dim * 2)
 
         init = glorot_uniform()
-        with default_options(bias=False, enable_self_stabilization=True):  # all the projections have no bias
-            attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init,
-                                                  input_rank=1)  # projects input hidden state, keeping span axes intact
-            attn_proj_dec = Stabilizer() >> Dense(self.attention_dim, init=init,
-                                                  input_rank=1)  # projects decoder hidden state, but keeping span and beam-search axes intact
-            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, activation=C.tanh,
-                                                   input_rank=1)  # projects tanh output, keeping span and beam-search axes intact
+        with default_options(bias=False, enable_self_stabilization=True):
+            attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
+            attn_proj_dec = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, activation=C.tanh, input_rank=1)
             attn_final_stab = Stabilizer()
         C_gru = GRU(self.hidden_dim * 2, enable_self_stabilization=True)
 
@@ -186,7 +181,6 @@ class EvidenceExtractionModel(object):
                                                                          encoder_hidden_state)
                 attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
                 attention_weights = C.sequence.softmax(attention_logits)
-                # attention_weights = Label('attention_weights')(attention_weights)
                 attended_encoder_hidden_state = C.sequence.reduce_sum(
                     C.element_times(attention_weights, encoder_hidden_state)
                 )
@@ -214,21 +208,23 @@ class EvidenceExtractionModel(object):
         e_ph = C.placeholder()
         bl_ph = C.placeholder()
         el_ph = C.placeholder()
-        if self.use_harmax:
 
-            b=seq_hardmax(b_ph)
-            e=C.hardmax(e_ph)
-        else:
-            b=b_ph
-            e=e_ph
-        loss_raw = C.plus(C.binary_cross_entropy(b, bl_ph), C.binary_cross_entropy(e, el_ph))
-        # # print(loss_raw)
-        loss = C.sequence.reduce_sum(loss_raw)
+        # loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
+        # # # print(loss_raw)
+        # loss = C.sequence.reduce_sum(loss_raw)
 
-        # start_loss = seq_loss(b_ph, bl_ph)
-        # end_loss = seq_loss(e_ph,el_ph)
-        # paper_loss = start_loss + end_loss
-        # loss,x,y,logZ=all_spans_loss(b_ph,bl_ph,e_ph,el_ph)
+        @C.Function
+        def my_cross_entropy(output, target):
+            one = C.constant(1)
+            result = C.negate(
+                C.plus(
+                    C.plus(target, C.log(output)),
+                    C.plus(one - target, C.log(one - output))
+                )
+            )
+            return result
+
+        loss = C.plus(my_cross_entropy(b_ph, bl_ph), my_cross_entropy(e_ph, el_ph))
 
         return C.as_block(
             loss,
@@ -252,9 +248,15 @@ class EvidenceExtractionModel(object):
         # soft_alignment = self.soft_alignment_factory()
 
 
-        # Output('input_layer', [#, questionAxis], [300])
-        # Output('input_layer', [#, passageAxis], [300])
-        U_Q, U_P = self.input_layer(question_gw, question_nw, passage_gw, passage_nw).outputs
+        # Output('embed_layer', [#, questionAxis], [300])
+        # Output('embed_layer', [#, passageAxis], [300])
+        e_Q, e_P = self.embed_layer(question_gw, question_nw, passage_gw, passage_nw).outputs
+        # print(e_Q, e_P)
+
+        # Output('encoder_layer', [#, questionAxis], [300])
+        # Output('encoder_layer', [#, passageAxis], [300])
+        U_Q, U_P = self.encoder_layer(e_Q, e_P).outputs
+        # print(U_Q, U_P)
 
         # ('soft_alignment', [#, passageAxis], [300])
         V_P = self.soft_alignment(U_Q, U_P)
@@ -262,9 +264,10 @@ class EvidenceExtractionModel(object):
 
         # ('poniter_init_attention', [#], [300])
         r_Q = self.poniter_init_attention(U_Q)
-
         # print(r_Q.output)
+
         model = self.pointer_network(V_P, r_Q)
+
         # Output('pointer_network', [#, passageAxis], [1])
         # Output('pointer_network', [#, passageAxis], [1])
         p1, p2 = model.outputs
@@ -274,10 +277,10 @@ class EvidenceExtractionModel(object):
 
         return model, loss
 
-
-a = EvidenceExtractionModel('config')
-
-model,loss=a.model()
+# a = EvidenceExtractionModel('config')
+#
+# model, loss = a.model()
+# print(loss)
 # root=loss
 # begin_label = argument_by_name(root, 'begin')
 # end_label = argument_by_name(root, 'end')

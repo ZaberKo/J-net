@@ -17,8 +17,7 @@ evidence_extraction_model = {
     'attention_dim': 200,
     'dropout': 0.2,
     'use_cuDNN': True,  # GPU required
-    'use_sparse': True,
-    'use_harmax':True
+    'use_sparse': True
 }
 
 answer_synthesis_model = {

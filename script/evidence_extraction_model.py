@@ -4,7 +4,7 @@ import pickle
 
 from cntk.layers import *
 
-from utils import BiRNN
+from utils import *
 
 
 class EvidenceExtractionModel(object):
@@ -18,11 +18,14 @@ class EvidenceExtractionModel(object):
         with open(pickle_file, 'rb') as vf:
             known, vocab, chars, known_npglove_matrix = pickle.load(vf)
 
+        self.vocab=vocab
+        self.chars=chars
         self.known_npglove_matrix = known_npglove_matrix
         # self.vocab_dim = len(vocab)
         self.wg_dim = known
         self.wn_dim = len(vocab) - known
         self.char_dim = len(chars)
+        self.a_dim = 1
         self.word_size = data_config['word_size']
         self.word_emb_dim = model_config['word_emb_dim']
         self.hidden_dim = model_config['hidden_dim']
@@ -30,7 +33,7 @@ class EvidenceExtractionModel(object):
         self.dropout = model_config['dropout']
         self.use_cuDNN = model_config['use_cuDNN']
         self.use_sparse = model_config['use_sparse']
-        self.a_dim = 1
+        self.use_harmax=model_config['use_harmax']
         self.question_seq_axis = C.Axis.new_unique_dynamic_axis('questionAxis')
         self.passage_seq_axis = C.Axis.new_unique_dynamic_axis('passageAxis')
 
@@ -211,10 +214,21 @@ class EvidenceExtractionModel(object):
         e_ph = C.placeholder()
         bl_ph = C.placeholder()
         el_ph = C.placeholder()
-        # todo: reduce sum
-        loss_raw = C.plus(C.binary_cross_entropy(b_ph, bl_ph), C.binary_cross_entropy(e_ph, el_ph))
-        # print(loss_raw)
+        if self.use_harmax:
+
+            b=seq_hardmax(b_ph)
+            e=C.hardmax(e_ph)
+        else:
+            b=b_ph
+            e=e_ph
+        loss_raw = C.plus(C.binary_cross_entropy(b, bl_ph), C.binary_cross_entropy(e, el_ph))
+        # # print(loss_raw)
         loss = C.sequence.reduce_sum(loss_raw)
+
+        # start_loss = seq_loss(b_ph, bl_ph)
+        # end_loss = seq_loss(e_ph,el_ph)
+        # paper_loss = start_loss + end_loss
+        # loss,x,y,logZ=all_spans_loss(b_ph,bl_ph,e_ph,el_ph)
 
         return C.as_block(
             loss,
@@ -257,11 +271,17 @@ class EvidenceExtractionModel(object):
         # print(p1, p2)
 
         loss = self.criterion(p1, p2, begin, end)
-        # print(loss)
+
         return model, loss
 
 
-# a = EvidenceExtractionModel('config')
-#
-# a.model()
+a = EvidenceExtractionModel('config')
+
+model,loss=a.model()
+# root=loss
+# begin_label = argument_by_name(root, 'begin')
+# end_label = argument_by_name(root, 'end')
+# print(type(begin_label))
+# print(C.combine([model,loss]))
+# print(loss.arguments)
 # print(a.model()[1])

@@ -1,8 +1,8 @@
 import argparse
 import importlib
 import os
-import ujson
-
+import json
+import cntk as C
 from evidence_extraction_model import EvidenceExtractionModel
 from utils import *
 
@@ -57,9 +57,9 @@ def train(data_path, model_path, log_path, config_file):
     gen_heartbeat = training_config['gen_heartbeat']
     mb_size = training_config['minibatch_size']
     epoch_size = training_config['epoch_size']
-    distributed_after=training_config['distributed_after']
-    restore_all=training_config['restore_all']
-    restore_freq=training_config['restore_freq']
+    distributed_after = training_config['distributed_after']
+    save_all = training_config['save_all']
+    save_freq = training_config['save_freq']
     # pickle_file = os.path.join(data_path, data_config['pickle_file'])
     # with open(pickle_file, 'rb') as vf:
     #     known, vocab, chars, npglove_matrix = pickle.load(vf)
@@ -67,8 +67,8 @@ def train(data_path, model_path, log_path, config_file):
 
 
     cntk_writer1 = C.logging.ProgressPrinter(
-        # freq=log_freq,
-        # distributed_freq=100,
+        freq=log_freq,
+        distributed_freq=log_freq,
         num_epochs=max_epochs,
         tag='Training',
         log_to_file=os.path.join(log_path, 'log_'),
@@ -80,7 +80,7 @@ def train(data_path, model_path, log_path, config_file):
         distributed_freq=log_freq,
         num_epochs=max_epochs,
         tag='Training2std',
-        rank=C.Communicator.rank(),
+        rank=0,
         gen_heartbeat=gen_heartbeat
     )
     tensorboard_writer = C.logging.TensorBoardProgressWriter(10, './tensorboard', 0, model)
@@ -92,18 +92,18 @@ def train(data_path, model_path, log_path, config_file):
     learner = C.adam(model.parameters, lr, momentum, minibatch_size=mb_size, epoch_size=epoch_size)
     # learner = C.adadelta(model.parameters, lr)
     if C.Communicator.num_workers() > 1:
-        learner = C.data_parallel_distributed_learner(learner,distributed_after)
+        learner = C.data_parallel_distributed_learner(learner, distributed_after)
 
     if profiling:
         C.debugging.start_profiler(sync_gpu=True)
         C.debugging.enable_profiler()
 
     train_data_file = os.path.join(data_path, training_config['train_data'])
-
+    # val_data_file = os.path.join(data_path, training_config['val_data'])
     mb_source, input_map = create_mb_and_map(loss, train_data_file, evidence_extraction_model)
 
     trainer = C.Trainer(model, (loss, None), learner, [cntk_writer1, cntk_writer2, tensorboard_writer])
-
+    # print('model',trainer.model)
     session = C.training_session(
         trainer=trainer,
         mb_source=mb_source,
@@ -113,13 +113,12 @@ def train(data_path, model_path, log_path, config_file):
         max_samples=max_epochs * epoch_size,
         checkpoint_config=C.CheckpointConfig(
             filename=os.path.join(model_path, model_name),
-            frequency=(epoch_size * restore_freq, C.DataUnit.sample),
+            frequency=(epoch_size * save_freq, C.DataUnit.sample),
             restore=isrestore,
-            preserve_all=restore_all
+            preserve_all=save_all
         )
 
     )
-
     session.train()
     tensorboard_writer.flush()
     tensorboard_writer.close()
@@ -129,15 +128,15 @@ def train(data_path, model_path, log_path, config_file):
         C.debugging.stop_profiler()
 
 
-def validate_model(test_data, model, polymath):
+def validate(test_data, model, ee_model):
     begin_logits = model.outputs[0]
     end_logits = model.outputs[1]
     loss = model.outputs[2]
     root = C.as_composite(loss.owner)
     mb_source, input_map = create_mb_and_map(
-        root, test_data, polymath, randomize=False, repeat=False)
-    begin_label = argument_by_name(root, 'ab')
-    end_label = argument_by_name(root, 'ae')
+        root, test_data, ee_model, randomize=False, repeat=False)
+    begin_label = argument_by_name(root, 'begin')
+    end_label = argument_by_name(root, 'end')
 
     begin_prediction = C.sequence.input_variable(
         1, sequence_axis=begin_label.dynamic_axes[1], needs_gradient=True)
@@ -170,12 +169,11 @@ def validate_model(test_data, model, polymath):
         recall), s(overlap), s(begin_match), s(end_match))
 
     # Evaluation parameters
-    minibatch_size = 8192
+    minibatch_size = 64
     num_sequences = 0
 
     stat_sum = 0
     loss_sum = 0
-
     while True:
         data = mb_source.next_minibatch(minibatch_size, input_map=input_map)
         if not data or not (begin_label in data) or data[begin_label].num_sequences == 0:
@@ -206,49 +204,53 @@ def validate_model(test_data, model, polymath):
             stat_avg[5],
             stat_avg[6]))
 
-    return loss_avg
+    return loss_sum
 
+def test(test_data, model_path, config_file):
 
-def test(test_data, model_path, model_file, config_file):
     evidence_extraction_model = EvidenceExtractionModel(config_file)
-    model = C.load_model(os.path.join(
-        model_path, model_file))
-    begin_logits = model.outputs[0]
-    end_logits = model.outputs[1]
+    model = C.load_model(os.path.join(model_path,  model_name))
+    begin_prob = model.outputs[0]
+    end_prob = model.outputs[1]
     loss = C.as_composite(model.outputs[2].owner)
-    begin_prediction = C.sequence.input_variable(
-        1, sequence_axis=begin_logits.dynamic_axes[1], needs_gradient=True)
-    end_prediction = C.sequence.input_variable(
-        1, sequence_axis=end_logits.dynamic_axes[1], needs_gradient=True)
-    best_span_score = symbolic_best_span(begin_prediction, end_prediction)
-    predicted_span = C.layers.Recurrence(C.plus)(
-        begin_prediction - C.sequence.past_value(end_prediction))
 
-    batch_size = 32  # in sequences
+    # print(model)
+    # begin_prediction = C.sequence.input_variable(
+    #     1, sequence_axis=begin_prob.dynamic_axes[1], needs_gradient=True)
+    # end_prediction = C.sequence.input_variable(
+    #     1, sequence_axis=end_prob.dynamic_axes[1], needs_gradient=True)
+    # best_span_score = symbolic_best_span(begin_prediction, end_prediction)
+    # predicted_span = C.layers.Recurrence(C.plus)(
+    #     begin_prediction - C.sequence.past_value(end_prediction))
+    #
+    batch_size = 1  # in sequences
     misc = {'rawctx': [], 'ctoken': [], 'answer': [], 'uid': []}
-    tsv_reader = create_tsv_reader(
-        loss, test_data, evidence_extraction_model, batch_size, 1, is_test=True, misc=misc)
+    tsv_reader = create_tsv_reader(loss, test_data, evidence_extraction_model,batch_size, 1, misc=misc)
+    # predicted_span = C.layers.Recurrence(C.plus)(begin_prediction - C.sequence.past_value(end_prediction))
     results = {}
-    with open('{}_out.json'.format(model_file), 'w', encoding='utf-8') as json_output:
+    # mb_source,input_map=create_mb_and_map(loss,test_data,evidence_extraction_model,False,False)
+    with open('{}_out.json'.format('FinalModel666'), 'w', encoding='utf-8') as json_output:
         for data in tsv_reader:
-            out = model.eval(
-                data, outputs=[begin_logits, end_logits, loss], as_numpy=False)
-            g = best_span_score.grad({begin_prediction: out[begin_logits], end_prediction: out[end_logits]}, wrt=[
-                begin_prediction, end_prediction], as_numpy=False)
-            other_input_map = {
-                begin_prediction: g[begin_prediction], end_prediction: g[end_prediction]}
-            span = predicted_span.eval((other_input_map))
+            out=model.eval(data, outputs=[begin_prob, end_prob], as_numpy=True)
+            # print(out)
             for seq, (raw_text, ctokens, answer, uid) in enumerate(
                     zip(misc['rawctx'], misc['ctoken'], misc['answer'], misc['uid'])):
-                seq_where = np.argwhere(span[seq])[:, 0]
-                span_begin = np.min(seq_where)
-                span_end = np.max(seq_where)
-                predict_answer = get_answer(
-                    raw_text, ctokens, span_begin, span_end)
+                begin=np.asarray(out[begin_prob])
+                end=np.asarray(out[end_prob])
+                # with open('record','w') as f:
+                #     f.write(str(begin.tolist()))
+                #     f.write('\n==================================\n')
+                #     f.write(str(end.tolist()))
+                # print(np.argmax(begin))
+                span_begin = int(np.argmax(begin))
+                span_end = int(np.argmax(end))
+                predict_answer = get_answer(raw_text, ctokens, span_begin, span_end)
                 results['query_id'] = int(uid)
+                print('{} begin:{} end:{}'.format(results['query_id'],span_begin, span_end))
                 results['answers'] = [predict_answer]
-                ujson.dump(results, json_output)
+                json.dump(results, json_output)
                 json_output.write("\n")
+            # print('ojbk')
             misc['rawctx'] = []
             misc['ctoken'] = []
             misc['answer'] = []
@@ -277,10 +279,15 @@ if __name__ == '__main__':
     config_file = args['config']
 
     is_test = args['test']
-    if is_test:
-        test(None, model_path, None, config_file)
 
-    print('===============Training Start=============')
-    train(data_path, model_path, log_path, config_file)
-    print('===============Training Finish=============')
-    C.Communicator.finalize()
+    test_data=os.path.join(data_path,'dev.tsv')
+
+    if is_test:
+        test(test_data, model_path, config_file)
+
+    else:
+        print('===============Training Start=============')
+        train(data_path, model_path, log_path, config_file)
+
+        print('===============Training Finish=============')
+        C.Communicator.finalize()

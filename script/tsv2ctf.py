@@ -16,6 +16,8 @@ word_size = data_config['word_size']
 emb_dim = data_config['emb_dim']
 word_count_threshold = data_config['word_count_threshold']
 char_count_threshold = data_config['char_count_threshold']
+is_limited_type=data_config['is_limited_type']
+limited_types=data_config['limited_types']
 
 sanitize = str.maketrans({"|": None, "\n": None})
 tsvs = 'train', 'dev', 'test'
@@ -47,7 +49,13 @@ def populate_dicts(files):
                 else:
                     uid, title, context, query, answer, raw_context, begin_answer, end_answer, raw_answer = line.split(
                         '\t')
-                tokens = context.split(' ') + query.split(' ') + answer.split(' ')
+
+                if is_limited_type:
+                    if title not in limited_types:
+                        continue
+
+                # tokens = context.split(' ') + query.split(' ') + answer.split(' ')
+                tokens = context.split(' ') + query.split(' ')
                 if 'train' in f:
                     for t in tokens:
                         wdcnt[t.lower()] += 1
@@ -96,7 +104,8 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     ctokens = context.split(' ')
     qtokens = query.split(' ')
     atokens = answer.split(' ')
-    mtokens = []
+
+
     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
 
     if ba > ea:
@@ -108,17 +117,14 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     # replace EMPTY_TOKEN with ''
     ctokens = [t if t != EMPTY_TOKEN else '' for t in ctokens]
     qtokens = [t if t != EMPTY_TOKEN else '' for t in qtokens]
-    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens] + [eos]
-    mtokens = [t if t != EMPTY_TOKEN else '' for t in mtokens]
+    atokens = [t if t != EMPTY_TOKEN else '' for t in atokens]
 
     cwids = [vocab.get(t.lower(), unk_w) for t in ctokens]
     qwids = [vocab.get(t.lower(), unk_w) for t in qtokens]
     awids = [vocab.get(t.lower(), unk_w) for t in atokens]
-    mwids = [vocab.get(t.lower(), unk_w) for t in mtokens]
-    ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
-    qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
-    acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
-    mcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in mtokens]
+    # ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
+    # qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
+    # acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
 
     baidx = [0 if i != ba else 1 for i, t in enumerate(ctokens)]
     eaidx = [0 if i != ea else 1 for i, t in enumerate(ctokens)]
@@ -126,12 +132,12 @@ def tsv_iter(line, vocab, chars, is_test=False, misc={}):
     if not is_test and sum(eaidx) == 0:
         raise ValueError('problem with input line:\n%s' % line)
 
-    if is_test and misc.keys():
+    if (not is_test) and misc.keys():
         misc['answer'] += [answer]
         misc['rawctx'] += [context]
         misc['ctoken'] += [ctokens]
 
-    return ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx
+    return title, ctokens, qtokens, atokens,  cwids, qwids, awids,  baidx, eaidx
 
 
 def tsv_to_ctf(f, g, vocab, chars, is_test):
@@ -139,78 +145,69 @@ def tsv_to_ctf(f, g, vocab, chars, is_test):
     print("Vocab size: %d" % len(vocab))
     print("Char size: %d" % len(chars))
     for lineno, line in enumerate(f):
-        ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx, eaidx = tsv_iter(
-            line,
-            vocab,
-            chars,
-            is_test)
+        title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx = \
+            tsv_iter(line,vocab,chars,is_test)
 
-        for ctoken, qtoken, atoken, mtoken, cwid, qwid, awid, mwid, ccid, qcid, acid, mcid, begin, end in zip_longest(
-                ctokens, qtokens, atokens, mtokens, cwids, qwids, awids, mwids, ccids, qcids, acids, mcids, baidx,
-                eaidx):
+        if is_limited_type:
+            if title not in limited_types:
+                continue
+
+        for ctoken, qtoken, atoken,  cwid, qwid, awid,  begin, end in zip_longest(
+                ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx):
             out = [str(lineno)]
             if ctoken is not None:
                 out.append('|# %s' % pad_spec.format(ctoken.translate(sanitize)))
-            if cwid is not None:
-                out.append('|cw {}:{}'.format(cwid, 1))
-            if mtoken is not None:
-                out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
-            if mwid is not None:
-                out.append('|mw {}:{}'.format(mwid, 1))
+            # if mtoken is not None:
+            #     out.append('|# %s' % pad_spec.format(mtoken.translate(sanitize)))
             if qtoken is not None:
                 out.append('|# %s' % pad_spec.format(qtoken.translate(sanitize)))
-            if qwid is not None:
-                out.append('|qw {}:{}'.format(qwid, 1))
             if atoken is not None:
                 out.append('|# %s' % pad_spec.format(atoken.translate(sanitize)))
+            if cwid is not None:
+                if cwid >= known:
+                    out.append('|cgw {}:{}'.format(0, 0))
+                    out.append('|cnw {}:{}'.format(cwid - known, 1))
+                else:
+                    out.append('|cgw {}:{}'.format(cwid, 1))
+                    out.append('|cnw {}:{}'.format(0, 0))
+            if qwid is not None:
+                if qwid >= known:
+                    out.append('|qgw {}:{}'.format(0, 0))
+                    out.append('|qnw {}:{}'.format(qwid - known, 1))
+                else:
+                    out.append('|qgw {}:{}'.format(qwid, 1))
+                    out.append('|qnw {}:{}'.format(0, 0))
             if awid is not None:
-                out.append('|aw {}:{}'.format(awid, 1))
-
-
-
-
-
-            # if ccid is not None:
-            #     outc = ' '.join(['%d' % c for c in ccid + [0] * max(word_size - len(ccid), 0)])
-            #     out.append('|cc %s' % outc)
-            # if qcid is not None:
-            #     outq = ' '.join(['%d' % c for c in qcid + [0] * max(word_size - len(qcid), 0)])
-            #     out.append('|qc %s' % outq)
-            # if acid is not None:
-            #     outa = ' '.join(['%d' % c for c in acid + [0] * max(word_size - len(acid), 0)])
-            #     out.append('|ac %s' % outa)
-            # if mcid is not None:
-            #     outm = ' '.join(['%d' % c for c in mcid + [0] * max(word_size - len(mcid), 0)])
-            #     out.append('|mc %s' % outm)
+                if awid >= known:
+                    out.append('|agw {}:{}'.format(0, 0))
+                    out.append('|anw {}:{}'.format(awid - known, 1))
+                else:
+                    out.append('|agw {}:{}'.format(awid, 1))
+                    out.append('|anw {}:{}'.format(0, 0))
             if begin is not None:
                 out.append('|ab %3d' % begin)
             if end is not None:
                 out.append('|ae %3d' % end)
-            if len(out) > 1:
-                g.write('\t'.join(out))
-                g.write('\n')
+            g.write('\t'.join(out))
+            g.write('\n')
 
 
 if __name__ == '__main__':
     try:
-        known, vocab, chars, npglove_matrix = pickle.load(open(vocab_map_file, 'rb'))
+        known, vocab, chars, known_glove_matrix = pickle.load(open(vocab_map_file, 'rb'))
     except:
         known, vocab, chars = populate_dicts(tsvs)
         vocab_dim = len(vocab)
-        npglove_matrix = np.zeros((vocab_dim, emb_dim), dtype=np.float32)
+        known_npglove_matrix = np.zeros((known, emb_dim), dtype=np.float32)
         with open(glove_file, 'r', encoding='utf-8') as file:
             for line in file:
                 parts = line.split()
                 word = parts[0].lower()
                 if word in vocab:
-                    npglove_matrix[vocab[word], :] = np.asarray([float(p) for p in parts[1:]])
+                    known_npglove_matrix[vocab[word], :] = np.asarray([float(p) for p in parts[1:]])
 
-        npglove_matrix[known:, :] = 2 * np.random.rand(vocab_dim - known, emb_dim) - np.ones(
-            (vocab_dim - known, emb_dim), dtype=np.float32)
-
-        f = open(vocab_map_file, 'wb')
-        pickle.dump((known, vocab, chars, npglove_matrix), f)
-        f.close()
+        with open(vocab_map_file, 'wb') as f:
+            pickle.dump((known, vocab, chars, known_npglove_matrix), f)
 
     for tsv in tsvs:
         tsv_name = os.path.join('./data', tsv)

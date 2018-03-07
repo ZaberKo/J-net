@@ -17,7 +17,8 @@ evidence_extraction_model = {
     'attention_dim': 200,
     'dropout': 0.2,
     'use_cuDNN': True,  # GPU required
-    'use_sparse': True
+    'use_sparse': True,
+    'use_harmax':True
 }
 
 answer_synthesis_model = {
@@ -28,19 +29,19 @@ answer_synthesis_model = {
 }
 
 training_config = {
-    'minibatch_size': 128,  # in samples when using ctf reader, per worker8192
+    'minibatch_size': 64,  # in samples when using ctf reader, per worker8192
     'epoch_size': 44179,  # in sequences, when using ctf reader 44179
     'log_freq': 100,  # in minibatchs(print for minibatch number: n*freq)
-    'max_epochs': 5,
-    'lr': 0.02,
-    'momentum': 0.5,
+    'max_epochs': 15,
+    'lr': 0.025,
+    'momentum': 0.9,
     'isrestore': False,
     'profiling': False,
     'gen_heartbeat': False,
     'train_data': 'train.ctf',  # or 'train.tsv'
     'val_data': 'dev.ctf',
-    'restore_all': True,
-    'restore_freq': 1,
+    'save_all': True,
+    'save_freq': 1,
     'val_interval': 1,  # interval in epochs to run validation
     'stop_after': 2,  # num epochs to stop if no CV improvement
     'distributed_after': 0,  # num sequences after which to start distributed training

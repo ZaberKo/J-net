@@ -118,7 +118,7 @@ class EvidenceExtractionModel(object):
             # r_Q = r_Q_att_layer(U_Q, C.sequence.last(V_P))
             return V_P
 
-        V_P = soft_alignment_layer(U_Q_ph, U_P_ph)
+        V_P=soft_alignment_layer(U_Q_ph, U_P_ph)
 
         return C.as_block(
             V_P,
@@ -132,7 +132,7 @@ class EvidenceExtractionModel(object):
         init = glorot_uniform()
         with default_options(bias=False, enable_self_stabilization=True):
             attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
-            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, input_rank=1, activation=tanh)
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, input_rank=1)
             attn_final_stab = Stabilizer()
         decoder_hidden_state = C.parameter(self.attention_dim)
 
@@ -140,7 +140,8 @@ class EvidenceExtractionModel(object):
         def attention_layer(encoder_hidden_state):
             projected_encoder_hidden_state = attn_proj_enc(encoder_hidden_state)
             projected_decoder_hidden_state = C.sequence.broadcast_as(decoder_hidden_state, encoder_hidden_state)
-            attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+            tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+            attention_logits = attn_proj_tanh(tanh_output)
             attention_weights = C.sequence.softmax(attention_logits)
             attended_encoder_hidden_state = C.sequence.reduce_sum(
                 C.element_times(attention_weights, encoder_hidden_state)
@@ -163,7 +164,7 @@ class EvidenceExtractionModel(object):
         with default_options(bias=False, enable_self_stabilization=True):
             attn_proj_enc = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
             attn_proj_dec = Stabilizer() >> Dense(self.attention_dim, init=init, input_rank=1)
-            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, activation=C.tanh, input_rank=1)
+            attn_proj_tanh = Stabilizer() >> Dense(1, init=init, input_rank=1)
             attn_final_stab = Stabilizer()
         C_gru = GRU(self.hidden_dim * 2, enable_self_stabilization=True)
 
@@ -179,7 +180,8 @@ class EvidenceExtractionModel(object):
                 projected_encoder_hidden_state = attn_proj_enc(encoder_hidden_state)
                 projected_decoder_hidden_state = C.sequence.broadcast_as(attn_proj_dec(decoder_hidden_state),
                                                                          encoder_hidden_state)
-                attention_logits = attn_proj_tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+                tanh_output = C.tanh(projected_decoder_hidden_state + projected_encoder_hidden_state)
+                attention_logits = attn_proj_tanh(tanh_output)
                 attention_weights = C.sequence.softmax(attention_logits)
                 attended_encoder_hidden_state = C.sequence.reduce_sum(
                     C.element_times(attention_weights, encoder_hidden_state)
@@ -213,9 +215,9 @@ class EvidenceExtractionModel(object):
         # # # print(loss_raw)
         # loss = C.sequence.reduce_sum(loss_raw)
         one = C.constant(1)
+
         @C.Function
         def my_cross_entropy(output, target):
-
             result = C.negate(
                 C.plus(
                     C.times(target, C.log(output)),
@@ -224,11 +226,11 @@ class EvidenceExtractionModel(object):
             )
             return result
 
-        loss_raw = C.plus(my_cross_entropy(b_ph, bl_ph), my_cross_entropy(e_ph, el_ph),name='loss_raw')
-        # length= C.sequence.reduce_sum(C.sequence.broadcast_as(one,loss_raw),name='length')
-        # loss_sum = C.sequence.reduce_sum(loss_raw)
-        # loss=C.element_divide(loss_sum,length)
-        loss=C.sequence.reduce_sum(loss_raw)
+        loss_raw = C.plus(my_cross_entropy(b_ph, bl_ph), my_cross_entropy(e_ph, el_ph), name='loss_raw')
+        length = C.sequence.reduce_sum(C.sequence.broadcast_as(one, loss_raw), name='length')
+        loss_sum = C.sequence.reduce_sum(loss_raw)
+        loss = C.element_times(loss_sum, C.constant(500) / length)  # normalization
+        # loss=C.sequence.reduce_sum(loss_raw)
         return C.as_block(
             loss,
             [(b_ph, begin), (e_ph, end), (bl_ph, begin_label), (el_ph, end_label)],
@@ -279,9 +281,9 @@ class EvidenceExtractionModel(object):
         loss = self.criterion(p1, p2, begin, end)
         return model, loss
 
-a = EvidenceExtractionModel('config')
-
-model, loss = a.model()
+# a = EvidenceExtractionModel('config')
+#
+# model, loss = a.model()
 # print(loss)
 # root=loss
 # begin_label = argument_by_name(root, 'begin')

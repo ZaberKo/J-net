@@ -15,10 +15,6 @@ def BiRNN(hidden_dim, num_layers=1, recurrent_op='gru', use_cudnn=True, name='')
 
         return cuDNN_bigru
     else:
-        cell = {
-            'gru': [GRU(hidden_dim), GRU(hidden_dim)],
-            'lstm': [LSTM(hidden_dim), LSTM(hidden_dim)]
-        }
         if recurrent_op == 'gru':
             fwd = GRU(hidden_dim)
             bwd = GRU(hidden_dim)
@@ -91,6 +87,56 @@ def symbolic_best_span(begin, end):
     return C.layers.Fold(C.element_max, initial_state=C.constant(-1e+30))(running_max_begin + end)
 
 
+# def tsv_iter(line, vocab, chars, is_test=False, misc={}):
+#     EMPTY_TOKEN = '<NULL>'
+#     unk = '<UNK>'
+#     unk_w = vocab[unk]
+#
+#     if is_test:
+#         uid, title, context, query = line.split('\t')
+#         answer = ''
+#         begin_answer, end_answer = '0', '1'
+#     else:
+#         uid, title, context, query, answer, raw_context, begin_answer, end_answer, raw_answer = line.split('\t')
+#         # uid, title, context, query, begin_answer, end_answer, answer = line.split('\t')
+#
+#     ctokens = context.split(' ')
+#     qtokens = query.split(' ')
+#     atokens = answer.split(' ')
+#
+#     ba, ea = int(begin_answer), int(end_answer) - 1  # the end from tsv is exclusive
+#
+#     if ba > ea:
+#         raise ValueError('answer problem with input line:\n%s' % line)
+#
+#     if not is_test:
+#         mtokens = ctokens[ba:ea + 1]
+#
+#     # replace EMPTY_TOKEN with ''
+#     ctokens = [t if t != EMPTY_TOKEN else '' for t in ctokens]
+#     qtokens = [t if t != EMPTY_TOKEN else '' for t in qtokens]
+#     atokens = [t if t != EMPTY_TOKEN else '' for t in atokens]
+#
+#     cwids = [vocab.get(t.lower(), unk_w) for t in ctokens]
+#     qwids = [vocab.get(t.lower(), unk_w) for t in qtokens]
+#     awids = [vocab.get(t.lower(), unk_w) for t in atokens]
+#     # ccids = [[chars.get(c, unk_c) for c in t][:word_size] for t in ctokens]  # clamp at word_size
+#     # qcids = [[chars.get(c, unk_c) for c in t][:word_size] for t in qtokens]
+#     # acids = [[chars.get(c, unk_c) for c in t][:word_size] for t in atokens]
+#
+#     baidx = [0 if i != ba else 1 for i, t in enumerate(ctokens)]
+#     eaidx = [0 if i != ea else 1 for i, t in enumerate(ctokens)]
+#
+#     if not is_test and sum(eaidx) == 0:
+#         raise ValueError('problem with input line:\n%s' % line)
+#     if misc.keys():
+#         misc['answer'] += [answer]
+#         misc['rawctx'] += [context]
+#         misc['ctoken'] += [ctokens]
+#
+#     return title, ctokens, qtokens, atokens, cwids, qwids, awids, baidx, eaidx
+
+
 def create_tsv_reader(func, tsv_file, model, seqs, num_workers,  misc=None):
     with open(tsv_file, 'r', encoding='utf-8') as f:
         eof = False
@@ -139,6 +185,117 @@ def create_tsv_reader(func, tsv_file, model, seqs, num_workers,  misc=None):
                 }
             else:
                 yield {}  # need to generate empty batch for distributed training
+
+def create_mb_and_map(func, data_file, ee_model, randomize=True, repeat=True):
+    mb_source = C.io.MinibatchSource(
+        C.io.CTFDeserializer(
+            data_file,
+            C.io.StreamDefs(
+                context_g_words=C.io.StreamDef(
+                    'cgw', shape=ee_model.wg_dim, is_sparse=True),
+                query_g_words=C.io.StreamDef(
+                    'qgw', shape=ee_model.wg_dim, is_sparse=True),
+                context_ng_words=C.io.StreamDef(
+                    'cnw', shape=ee_model.wn_dim, is_sparse=True),
+                query_ng_words=C.io.StreamDef(
+                    'qnw', shape=ee_model.wn_dim, is_sparse=True),
+                answer_begin=C.io.StreamDef(
+                    'ab', shape=ee_model.a_dim, is_sparse=False),
+                answer_end=C.io.StreamDef(
+                    'ae', shape=ee_model.a_dim, is_sparse=False),
+            )
+        ),
+        randomize=randomize,
+        max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1
+    )
+
+    input_map = {
+        argument_by_name(func, 'passage_gw'): mb_source.streams.context_g_words,
+        argument_by_name(func, 'question_gw'): mb_source.streams.query_g_words,
+        argument_by_name(func, 'passage_nw'): mb_source.streams.context_ng_words,
+        argument_by_name(func, 'question_nw'): mb_source.streams.query_ng_words,
+        argument_by_name(func, 'begin'): mb_source.streams.answer_begin,
+        argument_by_name(func, 'end'): mb_source.streams.answer_end
+    }
+    return mb_source, input_map
+
+def validate(test_data, model, ee_model):
+    begin_prob = model.outputs[0]
+    end_prob = model.outputs[1]
+    loss = model.outputs[2]
+    root = C.as_composite(loss.owner)
+    mb_source, input_map = create_mb_and_map(
+        root, test_data, ee_model, randomize=False, repeat=False)
+    begin_label = argument_by_name(root, 'begin')
+    end_label = argument_by_name(root, 'end')
+
+
+    # rouge-L
+    begin_prediction = C.sequence.input_variable(
+        1, sequence_axis=begin_label.dynamic_axes[1], needs_gradient=True)
+    end_prediction = C.sequence.input_variable(
+        1, sequence_axis=end_label.dynamic_axes[1], needs_gradient=True)
+
+    best_span_score = symbolic_best_span(begin_prediction, end_prediction)
+    predicted_span = C.layers.Recurrence(C.plus)(
+        begin_prediction - C.sequence.past_value(end_prediction))
+    true_span = C.layers.Recurrence(C.plus)(
+        begin_label - C.sequence.past_value(end_label))
+    common_span = C.element_min(predicted_span, true_span)
+    begin_match = C.sequence.reduce_sum(
+        C.element_min(begin_prediction, begin_label))
+    end_match = C.sequence.reduce_sum(C.element_min(end_prediction, end_label))
+
+    predicted_len = C.sequence.reduce_sum(predicted_span)
+    true_len = C.sequence.reduce_sum(true_span)
+    common_len = C.sequence.reduce_sum(common_span)
+    f1 = 2 * common_len / (predicted_len + true_len)
+    exact_match = C.element_min(begin_match, end_match)
+    precision = common_len / predicted_len
+    recall = common_len / true_len
+    overlap = C.greater(common_len, 0)
+
+    def s(x):
+        return C.reduce_sum(x, axis=C.Axis.all_axes())
+
+    stats = C.splice(s(f1), s(exact_match), s(precision), s(
+        recall), s(overlap), s(begin_match), s(end_match))
+
+    # Evaluation parameters
+    minibatch_size = 64
+    num_sequences = 0
+
+    stat_sum = 0
+    loss_sum = 0
+    while True:
+        data = mb_source.next_minibatch(minibatch_size, input_map=input_map)
+        if not data or not (begin_label in data) or data[begin_label].num_sequences == 0:
+            break
+        out = model.eval(
+            data, outputs=[begin_prob, end_prob, loss], as_numpy=False)
+        testloss = out[loss]
+        other_input_map = {begin_prediction: out[begin_prob], end_prediction: out[end_prob],
+                           begin_label: data[begin_label], end_label: data[end_label]}
+        stat_sum += stats.eval((other_input_map))
+        loss_sum += np.sum(testloss.asarray())
+        num_sequences += data[begin_label].num_sequences
+
+    stat_avg = stat_sum / num_sequences
+    loss_avg = loss_sum / num_sequences
+
+    print(
+        "Validated {} sequences, loss {:.4f}, F1 {:.4f}, EM {:.4f}, precision {:4f}, recall {:4f} hasOverlap {:4f}, start_match {:4f}, end_match {:4f}".format(
+            num_sequences,
+            loss_avg,
+            stat_avg[0],
+            stat_avg[1],
+            stat_avg[2],
+            stat_avg[3],
+            stat_avg[4],
+            stat_avg[5],
+            stat_avg[6]))
+
+    return loss_sum
 
 
 def argument_by_name(func, name):

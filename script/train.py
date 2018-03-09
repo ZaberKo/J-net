@@ -9,40 +9,7 @@ from utils import *
 model_name = 'ee.model'
 
 
-def create_mb_and_map(func, data_file, ee_model, randomize=True, repeat=True):
-    mb_source = C.io.MinibatchSource(
-        C.io.CTFDeserializer(
-            data_file,
-            C.io.StreamDefs(
-                context_g_words=C.io.StreamDef(
-                    'cgw', shape=ee_model.wg_dim, is_sparse=True),
-                query_g_words=C.io.StreamDef(
-                    'qgw', shape=ee_model.wg_dim, is_sparse=True),
-                context_ng_words=C.io.StreamDef(
-                    'cnw', shape=ee_model.wn_dim, is_sparse=True),
-                query_ng_words=C.io.StreamDef(
-                    'qnw', shape=ee_model.wn_dim, is_sparse=True),
-                answer_begin=C.io.StreamDef(
-                    'ab', shape=ee_model.a_dim, is_sparse=False),
-                answer_end=C.io.StreamDef(
-                    'ae', shape=ee_model.a_dim, is_sparse=False),
-            )
-        ),
-        randomize=randomize,
-        max_sweeps=C.io.INFINITELY_REPEAT if repeat else 1
-    )
 
-    input_map = {
-        argument_by_name(func, 'passage_gw'): mb_source.streams.context_g_words,
-        argument_by_name(func, 'question_gw'): mb_source.streams.query_g_words,
-        argument_by_name(func, 'passage_nw'): mb_source.streams.context_ng_words,
-        argument_by_name(func, 'question_nw'): mb_source.streams.query_ng_words,
-        # argument_by_name(func, 'passage_c'): mb_source.streams.context_chars,
-        # argument_by_name(func, 'question_c'): mb_source.streams.query_chars,
-        argument_by_name(func, 'begin'): mb_source.streams.answer_begin,
-        argument_by_name(func, 'end'): mb_source.streams.answer_end
-    }
-    return mb_source, input_map
 
 
 def train(data_path, model_path, log_path, config_file):
